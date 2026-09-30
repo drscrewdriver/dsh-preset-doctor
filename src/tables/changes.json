@@ -1,0 +1,23 @@
+{
+  "$schemaVersion": 2,
+  "$comment": "追加式变更日志（append-only change log）。每条 = 「某 DSH 版本起，旧令牌失效 → 新形态」。铁律：只追加，不改历史条目；新版 DSH 的模板变化在数组末尾追加新条目，任意时代写的预设经链式收敛后都到达当前安装的合法形态。用户可用 $DSH_HOME/preset-manager/tables.user.json 追加/覆盖（同名 from 覆盖内置）。",
+  "changes": [
+    {
+      "kind": "package-rename",
+      "brokenIn": "0.1.6-alpha.1",
+      "from": "@deepseek-ai/dsh-workflow-worker-thread",
+      "to": "@deepseek-ai/dsh-workflow-ptc",
+      "renameRowId": true,
+      "source": "commit 35af8698c2"
+    },
+    {
+      "kind": "config-key-rename",
+      "brokenIn": "0.1.3-alpha.2",
+      "package": "@deepseek-ai/dsh-persona",
+      "from": ["text"],
+      "to": ["prefix", "suffix"],
+      "valueRule": "persona.text.splitCwdSuffix",
+      "source": "commit 40792330c0 (keep model persona prefix and place cwd in suffix)"
+    }
+  ]
+}

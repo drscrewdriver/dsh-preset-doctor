@@ -1,0 +1,63 @@
+# Agent preset: 极简-with-reply
+# Converted from ~/.dsh/.agent-presets/simple-reply/
+# DSH v0.1.7+ 声明式预设格式：通过 Cordis patch 注册
+
+- insert:
+    - id: preset-simple-reply
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: simple-reply
+        name: 极简-with-reply
+        description: 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。
+        order: 10
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are a helpful software engineer assistant.
+              complete: true
+              includeRuntimeContext: false
+
+          - id: persistent-shell
+            name: cordis:group
+            group: true
+            isolate:
+              terminals: true
+            config:
+              - id: pty
+                name: '@deepseek-ai/dsh-terminal'
+
+              - id: terminal-bash
+                name: '@deepseek-ai/dsh-terminal-bash'
+                config:
+                  timeoutMs: 300000
+
+              - id: persistent-bash
+                name: '@deepseek-ai/dsh-tool-bash-persistent'
+                config:
+                  timeoutMs: 300000
+                  description: |-
+                    Run commands in a bash shell
+                    * When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
+                    * You don't have access to the internet via this tool.
+                    * You do have access to a mirror of common linux and python packages via apt and pip.
+                    * State is persistent across command calls and discussions with the user.
+                    * To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
+                    * Please avoid commands that may produce a very large amount of output.
+                    * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.
+
+          - id: filesystem
+            name: cordis:group
+            group: true
+            isolate:
+              fs: true
+            config:
+              - id: fs-local
+                name: '@deepseek-ai/dsh-fs-local'
+                config:
+                  cwd: !!js process.env.DSH_CWD ?? process.cwd()
+
+              - id: str-replace-editor
+                name: '@deepseek-ai/dsh-tool-str-replace-editor'
+                config:
+                  maxOutputChars: 16000

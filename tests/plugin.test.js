@@ -37,6 +37,11 @@ function mockCtx() {
     effect(fn, name) {
       effects.push({ fn, name })
     },
+    // cordis ctx 的服务解析面：registerPresetDoctorCommand 走 ctx.get('commands')
+    // 探测（严格代理下直接读 ctx.commands 属性会 throw），桩必须同构
+    get(name) {
+      return ctx[name]
+    },
     logger(name) {
       return { info: (...a) => logs.push(`[${name}] ${a.join(' ')}`) }
     },

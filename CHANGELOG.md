@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.1 (2026-10-05)
+
+修复六线宿主启动阻断（0.1.0-rc.8 / 0.1.1-rc.2 / 0.1.2-rc.1 / 0.1.5-rc.3 直接 fatal，
+0.1.7+ 宿主降级为 `entry did not activate` 警告 + 插件整体失效）。
+
+- **根因**：`/preset-doctor` 命令注册用 `ctx.commands?.register` 做 fail-open 守卫，但
+  commands 服务只在宿主 web/desktop 装配面存在，headless CLI 启动的 fiber 祖先链上没有它
+  ——严格 ctx 代理在**读取属性一步**即 throw（`cannot get property "commands" without
+  inject`），可选链防不住，loader entry 判 failed。
+- **修复**：改用 `ctx.get('commands')` 探测（cordis reflect mixin，缺失返回 undefined、
+  永不 throw、与 inject 无关，惯用法同 dsh-skills-manager），外罩窄域 try/catch 防退化
+  宿主（catch 只吞代理拒绝文案，其余错误原样上抛）。`inject` 保持空。
+- **顺修 `resolveDshHome` 落点**：`homeOverride` 未设置（宿主 settings 投影给空串）时，
+  `??` 对空串不穿透导致 `DSH_HOME` 环境变量从不生效、一律落到 `~/.dsh`——改用 `||`
+  穿透（DSH_HOME 是宿主家目录契约；沙盒/多实例场景恢复正确落点）。
+- **效果**：六线 CLI 上插件 entry 真激活、核心启动扫描/自动修复照常运行；`/preset-doctor`
+  命令在装配了 commands 服务的宿主面（web/desktop）照常注册，CLI 面自然降级。
+- **⚠️ 老线用户注意**：0.1.1–0.1.5 线此前该插件从未成功激活过；升级到此版后**首次真激活**，
+  启动扫描将首次对真实 `~/.dsh` 生效——机械可修的失效预设会被自动对齐到当前语法（备份
+  `.bak-*` + 原子写 + 幂等为既有设计；只想先看报告可在 settings 关闭 autoFix）。
+- 声明面消漂移：dsh.plugin.json version 0.3.0 → 0.4.1、engines.dsh `>=0.1.7-rc.1 <0.1.8-0`
+  → 与 package.json 一致（`>=0.1.1-rc.1`）；测试桩 mockCtx 补忠实 `get` 访问器（82 例全绿）。
+
 ## 0.4.0 (2026-10-01)
 
 适配分支：按宿主主线分 branch（peer / 处理终点 / 算法档位 各不相同）。

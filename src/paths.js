@@ -40,7 +40,9 @@ export function isFile(p) {
  * junction 还原为真实路径（Windows 全局安装常见 C:\nodejs → C:\nvm\...）。
  */
 export function resolveDshHome(override = '') {
-  const raw = String(override ?? process.env.DSH_HOME ?? '').trim()
+  // 用 || 而非 ??：宿主 settings 投影会把「未设置」给成空串，?? 对 '' 不穿透，
+  // DSH_HOME（宿主家目录契约）就永远轮不到——沙盒/多实例场景全数失效
+  const raw = String(override || process.env.DSH_HOME || '').trim()
   const home = raw || path.join(os.homedir(), '.dsh')
   return realpathSafe(home) || home
 }

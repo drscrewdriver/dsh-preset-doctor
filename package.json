@@ -12,11 +12,18 @@
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js",
+    "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer"
+      ]
     }
   },
   "scripts": {
@@ -39,6 +46,7 @@
   },
   "files": [
     "src",
+    "lib",
     "cordis.patch.yml",
     "README.md",
     "LICENSE",

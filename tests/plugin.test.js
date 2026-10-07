@@ -33,9 +33,14 @@ function writeBrokenPatch(home) {
 function mockCtx() {
   const effects = []
   const logs = []
+  const injections = []
   const ctx = {
     effect(fn, name) {
       effects.push({ fn, name })
+    },
+    // settings waist / 设置桥的 scoped inject：桩只登记不触发（本套件无 settings 服务）
+    inject(deps, fn) {
+      injections.push({ deps, fn })
     },
     // cordis ctx 的服务解析面：registerPresetDoctorCommand 走 ctx.get('commands')
     // 探测（严格代理下直接读 ctx.commands 属性会 throw），桩必须同构
@@ -46,7 +51,7 @@ function mockCtx() {
       return { info: (...a) => logs.push(`[${name}] ${a.join(' ')}`) }
     },
   }
-  return { ctx, effects, logs }
+  return { ctx, effects, logs, injections }
 }
 
 test('插件 apply：启动自动修复 + 日志输出报告（真实定时器）', async (t) => {

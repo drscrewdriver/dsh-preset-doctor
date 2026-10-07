@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 (2026-10-08)
+
+设置面三代 waist 下探 + client 半边（≤0.1.5 设置页插件配置卡）。
+
+- **设置面标注（本发布主旨）**：可检查设置面 = **0.1.7-rc.1 → 0.2.0**（宿主 volatile 自动表单，设置 → 插件 → preset-manager）；本轮起下探：
+  - **0.1.2-rc.1 / 0.1.5-rc.x**：host 侧 `settings.installSection(ctx, ns, Config, resolveConfig(config), {setSource, onChange})`（base 必须解包，活引用直传 ValidationError 且 cordis 静默吞异常）+ client 卡按 ns 派发——宿主实测派发条件 = served namespaces ∩ `settings.plugin.item` 卡 ∩ slot key === ns ∩ settingsScope.bind，四者缺一卡不出现（0.1.5 client-ui-settings-plugins client.js:1085-1146 源码定案）
+  - **0.1.0-rc.x / 0.1.1-rc.x**：服务只有 `register/update/mutate/describe`，`register(ns, Config, {base})` 注册即持久化（壳无设置页无 UI 可渲染，非缺陷）；⚠️ 动态 import `@deepseek-ai/dsh-settings` 在两线解析不出模块级 legacy 导出（实测 undefined），特性检测只用服务自身方法
+- **client 半边**（`lib/client.js`，ModuleLoader 纯 JS 无构建，跨代双面）：≤0.1.5 `settings.plugin.item` 卡（key=`preset-manager`）+ `settingsScope.bind` 子 inject；rc.1+ `plugins.row.config`（key=`dsh-preset-manager#preset-manager`）+ `plugins.bundle.config`（key=`dsh-preset-manager`）插件页卡——**0.1.7 设置面板实测无宿主渲染的 volatile 自动表单**，rc.1+ 的可见设置面只能由 client 卡承担（0.4.1 在 rc.1+ 实为无 UI，本版补齐）。4 键表单（3 布尔 + 1 文本），数据读写走自家 webServer 桥 `/api/dsh-preset-manager-settings/*`（POST-only + loopback 守卫 + describe 出口解包 + mutate 键白名单）。manifest `dsh.client.inject` 非空（`@deepseek-ai/dsh-client-ui-renderer`，六线 cell 全存在）——空数组 = client 永不编组（§9 教训）
+- **活配置源**：`current` 闭包可变，`setSource` 换绑后 `/preset-doctor` 与启动扫描即读新值，改设置无需重启；rc.1+ 语义不变（volatile 引用每次扫描前重新解引）
+- **peers/兼容声明**：`dsh.compatibility.dshReleases` 15-rc 全枚举；engines/peers 不变（`>=0.1.1-rc.1` / cordis `>=4.0.1 <5` 无栅栏）
+- 测试 91 例（新增 9：三代分支特性检测互斥 + setSource 换绑时序 + 桥 describe 解包/ns 过滤/白名单拒绝/loopback 守卫 + client 语法）
+- **farm 五格实测（0.5.0.r2）**：五格 boot 零 fail；分支遥测各归其位（0.1.0/0.1.1 `register`、0.1.2/0.1.5 `installSection`、0.1.7 静默）；桥 describe 纯值 + mutate 回环 5/5 PASS；浏览器实测 0.1.5/0.1.2 设置页卡派发 + 表单交互 + UI 保存落盘（scanProfiles/migrateLegacy 翻转均持久化还原）、0.1.7 插件页卡渲染 + UI 保存落盘。0.2.0 走 desktop 通道（Electron 应用内），槽位契约与 0.1.7 逐字一致（宿主源码），待用户桌面复验
+
 ## 0.4.1 (2026-10-05)
 
 修复六线宿主启动阻断（0.1.0-rc.8 / 0.1.1-rc.2 / 0.1.2-rc.1 / 0.1.5-rc.3 直接 fatal，

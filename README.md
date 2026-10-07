@@ -128,7 +128,7 @@ dsh plugin add dsh-preset-manager
 # 启动后 ~1s 在日志中找 [preset-manager] 扫描报告；会话内 /preset-doctor scan 验证命令
 ```
 
-### 设置项（设置 → 插件 → preset-manager）
+### 设置项
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -136,6 +136,16 @@ dsh plugin add dsh-preset-manager
 | `scanProfiles` | `true` | 同时扫描 profile 级 patch |
 | `migrateLegacy` | `true` | 自动迁移旧格式目录 |
 | `homeOverride` | `''` | 覆盖扫描根目录（测试/多实例用） |
+
+**设置面分布（0.5.0 起三代 waist 特性检测，禁止读版本号；farm 实测）**：
+
+| 宿主线 | 设置入口 | 说明 |
+|---|---|---|
+| 0.1.7-rc.1+ / 0.2.0（**本发布标注的可检查设置面**） | 插件页 → dsh-preset-manager 行详情 / bundle 详情页 | client 卡（`plugins.row.config` key=`dsh-preset-manager#preset-manager` + `plugins.bundle.config` key=`dsh-preset-manager`）。宿主**不**渲染 volatile 自动表单（0.1.7 设置面板导航实测无插件配置项）；volatile Config 只负责存储管道，卡数据走 `/api/dsh-preset-manager-settings` 桥（0.1.7 实测卡渲染 + UI 保存落盘） |
+| 0.1.2-rc.1 / 0.1.5-rc.x | 设置 → 插件 → 插件配置 标签页 | host 侧 `installSection` 注册 ns + client 卡按 ns 派发（派发条件 = served ns ∩ `settings.plugin.item` 卡 ∩ key===ns ∩ `settingsScope.bind`；0.1.2/0.1.5 实测卡渲染 + 保存回环） |
+| 0.1.0-rc.x / 0.1.1-rc.x | 无 UI（宿主壳无设置页） | host 侧 `register` 注册 ns 即获得持久化 + 桥读写（实测 mutate 回环通）；配置经 `cordis.patch.yml` |
+
+老线上改动经 `setSource` 换绑配置源，改完即对下一次 `/preset-doctor` 与启动扫描生效，无需重启。
 
 ## 边界与免责
 

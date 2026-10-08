@@ -1,6 +1,6 @@
 {
   "name": "dsh-preset-manager",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Preset doctor for DeepSeek Harness: auto-detects broken agent presets (legacy format, renamed packages, stale config keys) and mechanically repairs them to the current 0.1.7+ syntax, with backup, atomic writes and idempotence.",
   "type": "module",
   "license": "MIT",

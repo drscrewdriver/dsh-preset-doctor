@@ -54,20 +54,19 @@ function mockCtx() {
   return { ctx, effects, logs, injections }
 }
 
-test('插件 apply：启动自动修复 + 日志输出报告（真实定时器）', async (t) => {
+test('插件 apply：启动扫描恒只报告（2026-10-08 定案：即使 autoFix=true 也不自动修）', async (t) => {
   const home = tmpHome(t)
   const file = writeBrokenPatch(home)
+  const before = fs.readFileSync(file, 'utf8')
   const { ctx, effects, logs } = mockCtx()
   apply(ctx, { autoFix: true, homeOverride: home, scanProfiles: false, migrateLegacy: false })
   assert.equal(effects.length, 2, '应注册启动扫描 + 命令两个 effect')
   // 触发启动 effect（含 1s 定时器），等它跑完
   for (const e of effects) e.fn()
   await new Promise((r) => setTimeout(r, 1400))
-  const after = fs.readFileSync(file, 'utf8')
-  assert.ok(after.includes('workflow-ptc'), '应已自动修复为 workflow-ptc')
-  assert.ok(fs.readdirSync(home).some((f) => f.startsWith('cordis.patch.yml.bak-')), '应有备份')
+  assert.equal(fs.readFileSync(file, 'utf8'), before, '启动扫描绝不写盘（共用预设防误改）')
+  assert.ok(!fs.readdirSync(home).some((f) => f.startsWith('cordis.patch.yml.bak-')), '不应有备份（没写盘）')
   assert.ok(logs.some((l) => l.includes('dsh-preset-manager 扫描报告')), 'logger 应输出报告')
-  assert.ok(logs.some((l) => l.includes('修复已写盘')))
 })
 
 test('插件 apply：autoFix=false 时只报告不写盘', async (t) => {
@@ -98,9 +97,24 @@ test('runScanFix scan 模式（经 /preset-doctor 命令 handler）', async (t) 
   // scan 不写盘
   assert.equal(fs.readFileSync(file, 'utf8'), before)
 
+  // autoFix 总闸默认关：fix 子命令也不写盘（2026-10-08 手动确认定案）
+  const blockedResult = registered.handler({ rawInput: 'fix' })
+  assert.equal(blockedResult.kind, 'text')
+  assert.equal(fs.readFileSync(file, 'utf8'), before, 'autoFix=false 时 fix 子命令同样只报告')
+})
+
+test('autoFix=true 时 /preset-doctor fix 手动写盘修复（手动确认路径）', async (t) => {
+  const home = tmpHome(t)
+  const file = writeBrokenPatch(home)
+  const { ctx, effects } = mockCtx()
+  let registered
+  ctx.commands = { register: (def) => (registered = def) }
+  apply(ctx, { ...DEFAULT_SETTINGS, autoFix: true, homeOverride: home, scanProfiles: false, migrateLegacy: false })
+  for (const e of effects) e.fn()
   const fixResult = registered.handler({ rawInput: 'fix' })
   assert.equal(fixResult.kind, 'text')
-  assert.ok(fs.readFileSync(file, 'utf8').includes('workflow-ptc'))
+  assert.ok(fs.readFileSync(file, 'utf8').includes('workflow-ptc'), '总闸开启后显式 fix 应写盘')
+  assert.ok(fs.readdirSync(home).some((f) => f.startsWith('cordis.patch.yml.bak-')), '写盘前应有 .bak 备份')
 })
 
 test('report：normalizeFindings 排序编号 + renderText/renderJson 关键内容', () => {

@@ -27,7 +27,7 @@ export { DISCLAIMER }
 
 /** 默认配置（设置服务不可用时即用此值）。 */
 export const DEFAULT_SETTINGS = Object.freeze({
-  autoFix: true, // 启动扫描后自动应用机械修复（写前自动备份）
+  autoFix: false, // 修复总闸（默认关）：启动扫描永不自动修；开启后 /preset-doctor fix 才会写（.bak 备份 + 原子写）——共用预设防误改，2026-10-08 用户定案
   scanProfiles: true, // 同时扫描 profiles/<name>/cordis.patch.yml
   migrateLegacy: true, // 自动迁移旧格式 .agent-presets/ 目录
   homeOverride: '', // 覆盖扫描根目录（默认 ~/.dsh；测试/多实例用）
@@ -35,7 +35,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
 
 export const Config = z
   .object({
-    autoFix: z.boolean().default(DEFAULT_SETTINGS.autoFix).volatile().description('启动扫描后自动修复机械可修问题（.bak 备份 + 原子写）'),
+    autoFix: z.boolean().default(DEFAULT_SETTINGS.autoFix).volatile().description('修复总闸（默认关）：启动扫描恒只报告；开启后 /preset-doctor fix 才会写入修复（.bak 备份 + 原子写）'),
     scanProfiles: z.boolean().default(DEFAULT_SETTINGS.scanProfiles).volatile().description('同时扫描 profile 级 cordis.patch.yml'),
     migrateLegacy: z.boolean().default(DEFAULT_SETTINGS.migrateLegacy).volatile().description('自动迁移旧格式 .agent-presets/ 目录为 patch 声明'),
     homeOverride: z.string().default(DEFAULT_SETTINGS.homeOverride).volatile().description('覆盖扫描根目录（默认 ~/.dsh；测试/多实例用）'),
@@ -114,11 +114,13 @@ export function apply(ctx, config = {}) {
     }, 'preset-manager: settings bridge')
   })
 
-  // ── 启动后台扫描（不阻塞装载；1s 延迟让宿主先起完）──
+  // ── 启动后台扫描（不阻塞装载；1s 延迟让宿主先起完）。恒 scan-only：
+  //    2026-10-08 用户定案「预设修复必须手动确认」——启动绝不自动修（共用
+  //    预设防误改），修复只经 /preset-doctor fix 且受 autoFix 总闸（默认关）。──
   ctx.effect(() => {
     const timer = setTimeout(() => {
       try {
-        const { text } = runScanFix({ mode: 'fix' })
+        const { text } = runScanFix({ mode: 'scan' })
         log(text)
       } catch (e) {
         log(`启动扫描失败: ${e.message}`)

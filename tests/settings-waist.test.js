@@ -67,7 +67,7 @@ test('waist：0.1.2/0.1.5 线（服务带 installSection）→ installSection �
   assert.equal(calls.installSection.length, 1)
   assert.equal(calls.installSection[0].ns, 'preset-manager')
   assert.equal(calls.installSection[0].config, Config, 'schema 原样传入')
-  assert.equal(calls.installSection[0].base.autoFix, true, 'base 必须是解包后的普通值')
+  assert.equal(calls.installSection[0].base.autoFix, false, 'base 必须是解包后的普通值（默认关，2026-10-08 手动确认定案）')
   // 宿主注册后立即回 setSource → onSource 收到新源
   assert.equal(sources.length, 1)
   const cfg = sources[0]()

@@ -2,4 +2,4 @@
 # Rows resolve by package name so the installed copy is what boots.
 - insert:
     - id: preset-manager
-      name: "dsh-preset-manager"
+      name: "dsh-preset-doctor"

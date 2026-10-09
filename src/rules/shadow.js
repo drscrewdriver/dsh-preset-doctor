@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — R-ID-SHADOWED：预设 id 与内置预设同名（断裂点 B）。
+ * dsh-preset-doctor — R-ID-SHADOWED：预设 id 与内置预设同名（断裂点 B）。
  *
  * 0.1.2-alpha.1（commit f94495e527）起 resolvedRoots 把 shipped 根前置：
  * 用户预设与内置预设同 id 时**内置赢**，用户声明不生效——表现为「卡片看不见」

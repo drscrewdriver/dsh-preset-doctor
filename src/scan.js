@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — 扫描编排。
+ * dsh-preset-doctor — 扫描编排。
  *
  * 解析三层声明源 → 产出统一 finding 列表：
  *   { rule, level: 'auto'|'report', file, line, rowId, reason, suggestion, data }

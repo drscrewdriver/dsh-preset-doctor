@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — 插件入口（host half）。
+ * dsh-preset-doctor — 插件入口（host half）。
  *
  * 装载即工作：启动后台扫描三层声明源 → 机械可修的自动对齐到当前语法
  * （写前 .bak 备份、原子写、幂等）→ 输出结构化报告；不可机械修的逐条报告。

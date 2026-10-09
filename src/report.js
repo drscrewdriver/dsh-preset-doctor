@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — 结构化报告与文本渲染。
+ * dsh-preset-doctor — 结构化报告与文本渲染。
  *
  * 免责声明是报告的第一行：本工具保证「语法合法可加载」，
  * 不保证「行为等价」。
@@ -244,7 +244,7 @@ export function renderText(summary) {
   const L = []
   L.push(DISCLAIMER)
   L.push('')
-  L.push(`dsh-preset-manager 扫描报告 — 根目录: ${summary.home}`)
+  L.push(`dsh-preset-doctor 扫描报告 — 根目录: ${summary.home}`)
   if (summary.branch) {
     const b = summary.branch
     const via = summary.detectedVersion ? `，宿主 ${summary.detectedVersion}` : '，未检出版本，回退默认'

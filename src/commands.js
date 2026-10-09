@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — /preset-doctor 命令（fail-open）。
+ * dsh-preset-doctor — /preset-doctor 命令（fail-open）。
  *
  * commands 服务只在宿主的 web/desktop 装配面存在（dsh-commands 提供），headless
  * CLI 启动的 fiber 祖先链上没有它：此时严格 ctx 代理读 `ctx.commands` 属性本身

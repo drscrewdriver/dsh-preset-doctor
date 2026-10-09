@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — 引用包存在性校验。
+ * dsh-preset-doctor — 引用包存在性校验。
  *
  * 双通道（对齐故障排查记录 §4.3 的手工方法）：
  * 1. import.meta.resolve：走 Node 真实解析链。插件物理位于 profile

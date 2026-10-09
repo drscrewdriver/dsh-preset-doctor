@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — R-STRUCT：结构合规检查。
+ * dsh-preset-doctor — R-STRUCT：结构合规检查。
  *
  * 合法的预设声明行（PRD verify §10.1.2）：是 `- insert:` 条目下的一个映射，
  * 含 `id`、`name`（预设行 = dsh-agent-preset 包）、`config.id`、`config.plugins`。

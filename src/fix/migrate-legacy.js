@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — L1 结构迁移：旧格式 .agent-presets/<id>/ → cordis.patch.yml 声明。
+ * dsh-preset-doctor — L1 结构迁移：旧格式 .agent-presets/<id>/ → cordis.patch.yml 声明。
  *
  * 规则（PRD §6.1 R1–R5）：
  * - R1 目录名即预设 id；行 id 固定加前缀 preset-
@@ -182,7 +182,7 @@ export function findInsertListTail(text) {
 }
 
 const HEADER_COMMENT = [
-  '# 本文件由 dsh-preset-manager 生成/追加：旧格式预设（.agent-presets/）的结构迁移结果。',
+  '# 本文件由 dsh-preset-doctor 生成/追加：旧格式预设（.agent-presets/）的结构迁移结果。',
   '# 如需手工编辑，请保持 `- insert:` 列表结构与缩进（条目 4 空格起）。',
 ].join('\n')
 

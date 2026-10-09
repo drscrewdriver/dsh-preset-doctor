@@ -20,7 +20,7 @@
 - **设置面标注（本发布主旨）**：可检查设置面 = **0.1.7-rc.1 → 0.2.0**（宿主 volatile 自动表单，设置 → 插件 → preset-manager）；本轮起下探：
   - **0.1.2-rc.1 / 0.1.5-rc.x**：host 侧 `settings.installSection(ctx, ns, Config, resolveConfig(config), {setSource, onChange})`（base 必须解包，活引用直传 ValidationError 且 cordis 静默吞异常）+ client 卡按 ns 派发——宿主实测派发条件 = served namespaces ∩ `settings.plugin.item` 卡 ∩ slot key === ns ∩ settingsScope.bind，四者缺一卡不出现（0.1.5 client-ui-settings-plugins client.js:1085-1146 源码定案）
   - **0.1.0-rc.x / 0.1.1-rc.x**：服务只有 `register/update/mutate/describe`，`register(ns, Config, {base})` 注册即持久化（壳无设置页无 UI 可渲染，非缺陷）；⚠️ 动态 import `@deepseek-ai/dsh-settings` 在两线解析不出模块级 legacy 导出（实测 undefined），特性检测只用服务自身方法
-- **client 半边**（`lib/client.js`，ModuleLoader 纯 JS 无构建，跨代双面）：≤0.1.5 `settings.plugin.item` 卡（key=`preset-manager`）+ `settingsScope.bind` 子 inject；rc.1+ `plugins.row.config`（key=`dsh-preset-manager#preset-manager`）+ `plugins.bundle.config`（key=`dsh-preset-manager`）插件页卡——**0.1.7 设置面板实测无宿主渲染的 volatile 自动表单**，rc.1+ 的可见设置面只能由 client 卡承担（0.4.1 在 rc.1+ 实为无 UI，本版补齐）。4 键表单（3 布尔 + 1 文本），数据读写走自家 webServer 桥 `/api/dsh-preset-manager-settings/*`（POST-only + loopback 守卫 + describe 出口解包 + mutate 键白名单）。manifest `dsh.client.inject` 非空（`@deepseek-ai/dsh-client-ui-renderer`，六线 cell 全存在）——空数组 = client 永不编组（§9 教训）
+- **client 半边**（`lib/client.js`，ModuleLoader 纯 JS 无构建，跨代双面）：≤0.1.5 `settings.plugin.item` 卡（key=`preset-manager`）+ `settingsScope.bind` 子 inject；rc.1+ `plugins.row.config`（key=`dsh-preset-doctor#preset-manager`）+ `plugins.bundle.config`（key=`dsh-preset-doctor`）插件页卡——**0.1.7 设置面板实测无宿主渲染的 volatile 自动表单**，rc.1+ 的可见设置面只能由 client 卡承担（0.4.1 在 rc.1+ 实为无 UI，本版补齐）。4 键表单（3 布尔 + 1 文本），数据读写走自家 webServer 桥 `/api/dsh-preset-doctor-settings/*`（POST-only + loopback 守卫 + describe 出口解包 + mutate 键白名单）。manifest `dsh.client.inject` 非空（`@deepseek-ai/dsh-client-ui-renderer`，六线 cell 全存在）——空数组 = client 永不编组（§9 教训）
 - **活配置源**：`current` 闭包可变，`setSource` 换绑后 `/preset-doctor` 与启动扫描即读新值，改设置无需重启；rc.1+ 语义不变（volatile 引用每次扫描前重新解引）
 - **peers/兼容声明**：`dsh.compatibility.dshReleases` 15-rc 全枚举；engines/peers 不变（`>=0.1.1-rc.1` / cordis `>=4.0.1 <5` 无栅栏）
 - 测试 91 例（新增 9：三代分支特性检测互斥 + setSource 换绑时序 + 桥 describe 解包/ns 过滤/白名单拒绝/loopback 守卫 + client 语法）
@@ -99,4 +99,4 @@
 - 自动修复：旧格式结构迁移（L1+L2 一次到位）、包名+行 id 改名、persona text 拆分、本地路径 file:// 改写
 - 写盘安全：.bak 时间戳备份、tmp+rename 原子写、幂等、UTF-8 无 BOM、行尾保持、文本级 span 替换保真 `!!js` 标签
 - `/preset-doctor [scan|fix]` 命令；schemastery 设置（autoFix / scanProfiles / migrateLegacy / homeOverride）
-- npm 名 `dsh-preset-manager` 实测无冲突（2026-09-30）
+- npm 名 `dsh-preset-doctor` 实测无冲突（2026-09-30）

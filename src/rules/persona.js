@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — R-KEY-RENAMED：配置键改名（表驱动）。
+ * dsh-preset-doctor — R-KEY-RENAMED：配置键改名（表驱动）。
  *
  * 规则来自迁移表 configKeyRenames（含用户覆盖表），内置条目：
  * 0.1.3-alpha.2（commit 40792330c0）起 `persona` 的必填 `text` 被移除，

@@ -66,7 +66,7 @@ test('插件 apply：启动扫描恒只报告（2026-10-08 定案：即使 autoF
   await new Promise((r) => setTimeout(r, 1400))
   assert.equal(fs.readFileSync(file, 'utf8'), before, '启动扫描绝不写盘（共用预设防误改）')
   assert.ok(!fs.readdirSync(home).some((f) => f.startsWith('cordis.patch.yml.bak-')), '不应有备份（没写盘）')
-  assert.ok(logs.some((l) => l.includes('dsh-preset-manager 扫描报告')), 'logger 应输出报告')
+  assert.ok(logs.some((l) => l.includes('dsh-preset-doctor 扫描报告')), 'logger 应输出报告')
 })
 
 test('插件 apply：autoFix=false 时只报告不写盘', async (t) => {

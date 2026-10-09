@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — 运行宿主版本探测（适配分支选择依据）。
+ * dsh-preset-doctor — 运行宿主版本探测（适配分支选择依据）。
  *
  * 判据是「能否解析到 DSH 自身包并读出 package.json 版本」，双通道与
  * pkg-resolve 一致（Node 解析链 + fs 候选根）。fail-soft：全部失败返回

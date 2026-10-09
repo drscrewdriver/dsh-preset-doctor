@@ -1,4 +1,4 @@
-# dsh-preset-manager
+# dsh-preset-doctor
 
 **DSH 预设医生**：装载后自动扫描失效的 Agent 预设声明，机械可修的**自动对齐到当前版本语法**（写前 `.bak` 备份、原子写、幂等），不可机械修的逐条报告（文件：行号 + 原因 + 建议）。
 
@@ -103,8 +103,8 @@ npm run table-build -- --repo <dsh 源码仓库> --from dsh-v0.1.5-rc.3 --to dsh
 | 0.1.1 及更早 | 0.4.1 | `dsh-0.1.1` |
 
 ```bash
-npm install -g dsh-preset-manager            # latest（当前即 0.4.0）
-dsh plugin add dsh-preset-manager@dsh-0.2.0  # 按宿主线选 tag：dsh-0.1.7 / dsh-0.1.5 / dsh-0.1.2 / dsh-0.1.1
+npm install -g dsh-preset-doctor            # latest（当前即 0.4.0）
+dsh plugin add dsh-preset-doctor@dsh-0.2.0  # 按宿主线选 tag：dsh-0.1.7 / dsh-0.1.5 / dsh-0.1.2 / dsh-0.1.1
 ```
 
 装载后（约 1 秒后）自动扫描 `$DSH_HOME/cordis.patch.yml`、`profiles/<name>/cordis.patch.yml` 与遗留 `.agent-presets/` 目录，修复结果与报告输出到日志。
@@ -120,9 +120,9 @@ dsh plugin add dsh-preset-manager@dsh-0.2.0  # 按宿主线选 tag：dsh-0.1.7 /
 
 ```powershell
 # 路径 A：全局安装
-npm install -g dsh-preset-manager
+npm install -g dsh-preset-doctor
 # 路径 B：作为 profile 插件挂载
-dsh plugin add dsh-preset-manager
+dsh plugin add dsh-preset-doctor
 
 # 重启 DSH 进程（预设注册表与插件仅在启动时加载）
 # 启动后 ~1s 在日志中找 [preset-manager] 扫描报告；会话内 /preset-doctor scan 验证命令
@@ -141,7 +141,7 @@ dsh plugin add dsh-preset-manager
 
 | 宿主线 | 设置入口 | 说明 |
 |---|---|---|
-| 0.1.7-rc.1+ / 0.2.0（**本发布标注的可检查设置面**） | 插件页 → dsh-preset-manager 行详情 / bundle 详情页 | client 卡（`plugins.row.config` key=`dsh-preset-manager#preset-manager` + `plugins.bundle.config` key=`dsh-preset-manager`）。宿主**不**渲染 volatile 自动表单（0.1.7 设置面板导航实测无插件配置项）；volatile Config 只负责存储管道，卡数据走 `/api/dsh-preset-manager-settings` 桥（0.1.7 实测卡渲染 + UI 保存落盘） |
+| 0.1.7-rc.1+ / 0.2.0（**本发布标注的可检查设置面**） | 插件页 → dsh-preset-doctor 行详情 / bundle 详情页 | client 卡（`plugins.row.config` key=`dsh-preset-doctor#preset-manager` + `plugins.bundle.config` key=`dsh-preset-doctor`）。宿主**不**渲染 volatile 自动表单（0.1.7 设置面板导航实测无插件配置项）；volatile Config 只负责存储管道，卡数据走 `/api/dsh-preset-doctor-settings` 桥（0.1.7 实测卡渲染 + UI 保存落盘） |
 | 0.1.2-rc.1 / 0.1.5-rc.x | 设置 → 插件 → 插件配置 标签页 | host 侧 `installSection` 注册 ns + client 卡按 ns 派发（派发条件 = served ns ∩ `settings.plugin.item` 卡 ∩ key===ns ∩ `settingsScope.bind`；0.1.2/0.1.5 实测卡渲染 + 保存回环） |
 | 0.1.0-rc.x / 0.1.1-rc.x | 无 UI（宿主壳无设置页） | host 侧 `register` 注册 ns 即获得持久化 + 桥读写（实测 mutate 回环通）；配置经 `cordis.patch.yml` |
 

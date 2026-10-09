@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — R-DUP-ID：重复声明检测。
+ * dsh-preset-doctor — R-DUP-ID：重复声明检测。
  *
  * 两类（都只报告，不自动裁决删哪个）：
  * 1. 同一 patch 文件内：两行 preset 声明行 id 相同（`preset-*` 行 id 须全文件唯一）

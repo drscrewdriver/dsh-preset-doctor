@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — 包引用检查（R-PKG-RENAMED / R-PKG-MISSING / R-LOCAL-PATH）。
+ * dsh-preset-doctor — 包引用检查（R-PKG-RENAMED / R-PKG-MISSING / R-LOCAL-PATH）。
  *
  * 门禁是**相对运行实例**的（这是「任意历史起点收敛到当前安装」的关键）：
  * - 旧名在当前安装**已死** 且 迁移表链式收敛后的新名**存在** → R-PKG-RENAMED（自动修）

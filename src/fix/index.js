@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — 修复编排。
+ * dsh-preset-doctor — 修复编排。
  *
  * 两阶段（先文本编辑后迁移，同一文件的追加读的是编辑后的最新盘上内容）：
  * 1. patch 文件内 span 编辑（R-PKG-RENAMED / R-KEY-RENAMED / R-LOCAL-PATH）：

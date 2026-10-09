@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — 修复规划器：finding → span 编辑（[{start, end, text}]）。
+ * dsh-preset-doctor — 修复规划器：finding → span 编辑（[{start, end, text}]）。
  *
  * 铁律：对既有 patch 的修复一律文本级替换，编辑区间限于该行自身，
  * 区间外的字节 100% 不动（!!js 标签 / 注释 / 缩进因此天然保真）。

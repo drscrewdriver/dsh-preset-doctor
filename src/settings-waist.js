@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — 三代宿主设置 waist（特性检测分派，禁止读版本号）。
+ * dsh-preset-doctor — 三代宿主设置 waist（特性检测分派，禁止读版本号）。
  *
  * 检测点互斥、只用 settings 服务自身方法（0.1.0/0.1.1 上动态 import
  * "@deepseek-ai/dsh-settings" 解析不出模块级 legacy 导出，实测 undefined，勿用）：

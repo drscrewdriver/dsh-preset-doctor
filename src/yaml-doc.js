@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — YAML 文档层。
+ * dsh-preset-doctor — YAML 文档层。
  *
  * patch 文件是 Cordis YAML，含 DSH 生态自定义标签 `!!js <expr>`（如
  * `disabled: !!js process.platform === 'win32'`）。本工具不求值表达式，

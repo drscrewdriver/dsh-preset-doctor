@@ -20,7 +20,7 @@ test('candidateRoots: 含本模块祖先链的 node_modules 与可执行文件�
   const roots = candidateRoots()
   assert.ok(roots.length >= 1)
   // 本测试文件位于 <root>/tests/，祖先链上应有 <root>/node_modules
-  assert.ok(roots.some((r) => r.replace(/\\/g, '/').endsWith('dsh-preset-manager/node_modules')))
+  assert.ok(roots.some((r) => r.replace(/\\/g, '/').endsWith('dsh-preset-doctor/node_modules')))
 })
 
 test('resolvePkg: 已安装依赖（yaml）可解析', () => {

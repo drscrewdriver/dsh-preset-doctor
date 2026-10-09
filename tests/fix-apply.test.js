@@ -276,7 +276,7 @@ test('E2E：向既有 patch 追加迁移块，既有字节不动 + 结果可解�
     '# existing',
     '- insert:',
     '    - id: preset-manager',
-    '      name: "dsh-preset-manager"',
+    '      name: "dsh-preset-doctor"',
     '',
   ].join('\n')
   const file = writePatch(home, 'cordis.patch.yml', existing)

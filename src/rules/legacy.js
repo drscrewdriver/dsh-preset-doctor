@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — R-LEGACY / R-LEGACY-CONFLICT：旧格式预设目录。
+ * dsh-preset-doctor — R-LEGACY / R-LEGACY-CONFLICT：旧格式预设目录。
  *
  * 0.1.7-alpha.1（commit d1e22a7e24）整体移除 `.agent-presets/` 目录扫描，
  * 改为 cordis.patch.yml 声明式注册。遗留目录在新机制下**根本不会注册**

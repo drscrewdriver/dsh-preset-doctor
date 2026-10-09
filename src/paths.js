@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — 路径与声明源收集。
+ * dsh-preset-doctor — 路径与声明源收集。
  *
  * 声明源三层（对齐故障排查记录 §3 / 兼容指南 §1）：
  * - home 级：$DSH_HOME/cordis.patch.yml（对所有 profile 生效，优先扫）

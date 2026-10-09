@@ -1,5 +1,5 @@
 /**
- * dsh-preset-manager — 自家 webServer 桥（client 卡的设置数据层）。
+ * dsh-preset-doctor — 自家 webServer 桥（client 卡的设置数据层）。
  *
  * 0.1.2/0.1.5 插件配置 tab 的卡由 client 半边渲染（宿主派发条件 =
  * served namespaces ∩ settings.plugin.item 卡），数据读写走本桥而非
@@ -8,7 +8,7 @@
  * 活引用，rc.1+ 纯值原样透传，双代无害）。
  */
 
-const BRIDGE_PREFIX = '/api/dsh-preset-manager-settings'
+const BRIDGE_PREFIX = '/api/dsh-preset-doctor-settings'
 const MAX_JSON_BODY_BYTES = 256 * 1024
 
 /** 本插件暴露给桥的配置键（mutate 白名单，防任意路径写入）。 */

@@ -72,8 +72,11 @@ export function toView(settings, descriptor, resolveConfig) {
  * @param opts.settings settings 服务实例（ctx.inject(['settings']) 的成员）
  * @param opts.ns 本插件 settings namespace
  * @param opts.resolveConfig 活引用解包函数（index.js 提供，测试可注入）
+ * @param opts.context 可选扩展面（卡片化 UI）：{ getSummary({fresh}), runSync({key,confirm}) }；
+ *        缺省时 list/sync 返回 unavailable——三参旧调用与既有测试不受影响。
  */
-export function makeSettingsBridge({ settings, ns, resolveConfig }) {
+export function makeSettingsBridge({ settings, ns, resolveConfig, context } = {}) {
+  const ext = context ?? {}
   const mine = () => settings.describe({ redactSecrets: true }).filter((descriptor) => String(descriptor.ns) === ns)
 
   const handlers = {
@@ -117,6 +120,34 @@ export function makeSettingsBridge({ settings, ns, resolveConfig }) {
       }
       return { ok: true, value: toView(settings, descriptor, resolveConfig) }
     },
+
+    /** 卡片化 UI：预设清单 + 当前版本/代际目录。body {fresh?:true} 重扫。 */
+    async list(request) {
+      if (typeof ext.getSummary !== 'function') {
+        return { ok: false, code: 'unavailable', message: 'summary provider not wired' }
+      }
+      try {
+        const fresh = request !== null && typeof request === 'object' && request.fresh === true
+        return { ok: true, value: ext.getSummary({ fresh }) }
+      } catch (error) {
+        return { ok: false, code: 'internal', message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    /** 卡片化 UI：单预设同步。body {key, confirm:true}——confirm 缺失即拒绝（全手动确认纪律）。 */
+    async sync(request) {
+      if (typeof ext.runSync !== 'function') {
+        return { ok: false, code: 'unavailable', message: 'sync provider not wired' }
+      }
+      if (request === null || typeof request !== 'object' || typeof request.key !== 'string' || !request.key) {
+        return { ok: false, code: 'sync-rejected', message: 'malformed sync request (key required)' }
+      }
+      try {
+        return await ext.runSync(request)
+      } catch (error) {
+        return { ok: false, code: 'internal', message: error instanceof Error ? error.message : String(error) }
+      }
+    },
   }
 
   const guard = (req, res) => {
@@ -151,6 +182,28 @@ export function makeSettingsBridge({ settings, ns, resolveConfig }) {
           return
         }
         writeJson(res, 200, await handlers.mutate(body))
+      },
+    },
+    {
+      kind: 'exact',
+      path: `${BRIDGE_PREFIX}/list`,
+      handler: async (req, res) => {
+        if (!guard(req, res)) return
+        const body = await readJsonBody(req)
+        writeJson(res, 200, await handlers.list(body ?? {}))
+      },
+    },
+    {
+      kind: 'exact',
+      path: `${BRIDGE_PREFIX}/sync`,
+      handler: async (req, res) => {
+        if (!guard(req, res)) return
+        const body = await readJsonBody(req)
+        if (body === undefined) {
+          writeJson(res, 400, { ok: false, code: 'sync-rejected', message: 'malformed JSON body' })
+          return
+        }
+        writeJson(res, 200, await handlers.sync(body))
       },
     },
   ]

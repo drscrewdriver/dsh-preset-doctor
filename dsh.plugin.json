@@ -1,6 +1,6 @@
 {
   "id": "dsh-external/dsh-preset-manager",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "main": "./src/index.js",
   "description": "预设医生：装载后自动扫描失效预设（旧格式目录、过期包名、过期配置键、相对本地路径、重复声明），机械可修的自动对齐到当前语法（备份 + 原子写 + 幂等），不可机械修的逐条报告。",
   "engines": {

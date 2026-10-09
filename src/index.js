@@ -15,7 +15,7 @@ import { resolveDshHome } from './paths.js'
 import { scanAll } from './scan.js'
 import { applyFixes } from './fix/index.js'
 import { defaultTimestamp } from './fix/core.js'
-import { summarize, renderText, renderJson, DISCLAIMER } from './report.js'
+import { summarize, renderText, renderJson, collectPresets, eraCatalogFor, DISCLAIMER } from './report.js'
 import { registerPresetDoctorCommand } from './commands.js'
 import { installSettingsWaist } from './settings-waist.js'
 import { makeSettingsBridge } from './bridge.js'
@@ -27,7 +27,9 @@ export { DISCLAIMER }
 
 /** 默认配置（设置服务不可用时即用此值）。 */
 export const DEFAULT_SETTINGS = Object.freeze({
-  autoFix: false, // 修复总闸（默认关）：启动扫描永不自动修；开启后 /preset-doctor fix 才会写（.bak 备份 + 原子写）——共用预设防误改，2026-10-08 用户定案
+  // autoFix 总闸已退役（2026-10-09 用户定案「取消自动闸 全手动确认」）：
+  // 启动恒 scan-only，写盘只经显式手动动作（/preset-doctor fix 命令、
+  // 卡内同步确认框）。旧配置里的 autoFix 值被 readConfig 丢弃，无害。
   scanProfiles: true, // 同时扫描 profiles/<name>/cordis.patch.yml
   migrateLegacy: true, // 自动迁移旧格式 .agent-presets/ 目录
   homeOverride: '', // 覆盖扫描根目录（默认 ~/.dsh；测试/多实例用）
@@ -35,7 +37,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
 
 export const Config = z
   .object({
-    autoFix: z.boolean().default(DEFAULT_SETTINGS.autoFix).volatile().description('修复总闸（默认关）：启动扫描恒只报告；开启后 /preset-doctor fix 才会写入修复（.bak 备份 + 原子写）'),
     scanProfiles: z.boolean().default(DEFAULT_SETTINGS.scanProfiles).volatile().description('同时扫描 profile 级 cordis.patch.yml'),
     migrateLegacy: z.boolean().default(DEFAULT_SETTINGS.migrateLegacy).volatile().description('自动迁移旧格式 .agent-presets/ 目录为 patch 声明'),
     homeOverride: z.string().default(DEFAULT_SETTINGS.homeOverride).volatile().description('覆盖扫描根目录（默认 ~/.dsh；测试/多实例用）'),
@@ -77,7 +78,9 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  /** 扫描 + （可选）修复 → 报告。mode: 'fix' | 'scan'。 */
+  /** 扫描 + （显式调用时）修复 → 报告。mode: 'fix' | 'scan'。
+   *  写盘语义（2026-10-09「取消自动闸 全手动确认」）：mode='fix' 只由
+   *  /preset-doctor 显式命令进入——命令本身即手动确认；启动恒 'scan'。 */
   function runScanFix({ mode = 'fix' } = {}) {
     const cfg = current()
     const home = resolveDshHome(cfg.homeOverride)
@@ -86,10 +89,66 @@ export function apply(ctx, config = {}) {
       scanProfiles: cfg.scanProfiles,
       migrateLegacy: cfg.migrateLegacy,
     })
-    const doFix = mode === 'fix' && cfg.autoFix
+    lastScan = { home, scan }
+    const doFix = mode === 'fix'
     const fixResult = doFix ? applyFixes(scan, { dryRun: false, ts: defaultTimestamp() }) : undefined
     const summary = summarize(scan, fixResult)
     return { summary, text: renderText(summary), json: renderJson(summary) }
+  }
+
+  // ── 卡片化 UI 数据层：启动扫描缓存 + 单预设同步（桥 list/sync 消费）──
+  let lastScan = null
+
+  /** list 路由数据：默认走启动缓存（秒开），fresh 才重扫。 */
+  function getSummary({ fresh = false } = {}) {
+    if (fresh || !lastScan) runScanFix({ mode: 'scan' })
+    const { home, scan } = lastScan
+    const summary = summarize(scan, undefined)
+    const cfg = current()
+    return {
+      version: summary.detectedVersion,
+      branch: summary.branch,
+      eras: eraCatalogFor(summary.branch),
+      presets: summary.presets,
+      total: summary.total,
+      byLevel: summary.byLevel,
+      config: { scanProfiles: cfg.scanProfiles, migrateLegacy: cfg.migrateLegacy, homeOverride: cfg.homeOverride },
+      home,
+    }
+  }
+
+  /** sync 路由：单预设机械修复（全手动确认纪律——confirm 由桥入参强制）。 */
+  function runSync({ key, confirm } = {}) {
+    if (confirm !== true) {
+      return { ok: false, code: 'confirm-required', message: '缺少确认（confirm:true）；写盘前必须在卡内确认框中明确同意' }
+    }
+    const cfg = current()
+    const home = resolveDshHome(cfg.homeOverride)
+    const scan = scanAll({
+      home,
+      scanProfiles: cfg.scanProfiles,
+      migrateLegacy: cfg.migrateLegacy,
+    })
+    const target = collectPresets(scan).find((p) => p.key === key)
+    if (!target) return { ok: false, code: 'preset-not-found', message: `预设不在本次扫描结果中（可能已删除）：${key}` }
+    const autoFindings = target.broken.filter((f) => f.level === 'auto')
+    if (autoFindings.length === 0) {
+      return { ok: true, alreadySynced: true, applied: 0, skipped: target.broken.length }
+    }
+    const fixResult = applyFixes({ ...scan, findings: autoFindings }, { dryRun: false, ts: defaultTimestamp() })
+    const applied =
+      fixResult.files.filter((f) => f.status === 'written').length +
+      fixResult.migrated.filter((m) => m.status === 'written').length
+    return {
+      ok: true,
+      applied,
+      skipped: target.broken.length - autoFindings.length,
+      fix: {
+        files: fixResult.files,
+        migrated: fixResult.migrated,
+        errors: fixResult.errors,
+      },
+    }
   }
 
   // ── 三代设置 waist（0.1.2/0.1.5 installSection、0.1.0/0.1.1 register、
@@ -106,7 +165,7 @@ export function apply(ctx, config = {}) {
   // ── 设置桥（client 卡数据层；webServer 缺席的线自动 pending 不阻塞）──
   ctx.inject(['webServer', 'settings'], (sctx) => {
     sctx.effect(() => {
-      const routes = makeSettingsBridge({ settings: sctx.settings, ns: name, resolveConfig })
+      const routes = makeSettingsBridge({ settings: sctx.settings, ns: name, resolveConfig, context: { getSummary, runSync } })
       const disposers = routes.map((route) => sctx.webServer.register(route))
       return () => {
         for (const dispose of disposers) dispose()
@@ -115,8 +174,9 @@ export function apply(ctx, config = {}) {
   })
 
   // ── 启动后台扫描（不阻塞装载；1s 延迟让宿主先起完）。恒 scan-only：
-  //    2026-10-08 用户定案「预设修复必须手动确认」——启动绝不自动修（共用
-  //    预设防误改），修复只经 /preset-doctor fix 且受 autoFix 总闸（默认关）。──
+  //    2026-10-08 定案「预设修复必须手动确认」+ 2026-10-09 定案「取消自动
+  //    闸 全手动确认」——启动绝不写盘，修复只经显式手动动作（命令/卡内
+  //    同步确认框）。扫描结果落 lastScan 缓存供卡面 list 秒开。──
   ctx.effect(() => {
     const timer = setTimeout(() => {
       try {
@@ -131,4 +191,7 @@ export function apply(ctx, config = {}) {
 
   // ── /preset-doctor 命令（fail-open）──
   ctx.effect(() => registerPresetDoctorCommand(ctx, (opts) => runScanFix(opts)), 'preset-manager: command register')
+
+  // 供测试与高级宿主直接使用（宿主 apply 返回值照常忽略）
+  return { getSummary, runSync }
 }

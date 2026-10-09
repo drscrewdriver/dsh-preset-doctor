@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0 (2026-10-09)
+
+预设医生卡片化改版 + autoFix 总闸退役（2026-10-09 用户定案「取消自动闸 全手动确认」）。
+
+- **预设卡片网格**：检测到的全部「理论潜在可用」预设（home/profile patch 声明 + 遗留目录）以官方 AgentPresetSection 同款卡片展示（268px 起步网格、来源徽章、代际徽章、失效红边+修复项折叠明细）。数据源 = summarize() 新增 presets[]（三路 union + (id,file) 去重 + 健康预设补 current + era 关联，collectPresets 全程空安全）。
+- **卡内「同步到当前版本」**：点击 → 确认框（可自动修处数 + .bak 备份说明）→ `POST .../sync {key,confirm:true}` → applyFixes 单预设 auto 级修复（.bak + 原子写）→ 重扫刷卡。confirm 缺失服务端硬拒绝（confirm-required）；report 级永不写盘。
+- **autoFix 总闸退役**：DEFAULT_SETTINGS/Config/表单移除该字段，/preset-doctor fix 不再受闸（显式命令 = 手动确认）；启动恒 scan-only。旧配置里的 autoFix 值被 readConfig 丢弃。
+- **信息区**：当前 DSH 版本 + 代际目录（目录预设期 0.1.0–0.1.5 / 声明 Patch 期 0.1.7α1+，自 branches.json presetFormat 派生，当前代高亮）。
+- **桥扩容**：makeSettingsBridge 可选 context={getSummary,runSync}（向后兼容，缺省 list/sync 返 unavailable）+ `/list`（body {fresh:true} 重扫，默认走启动扫描缓存）+ `/sync` 两路由；BRIDGE_KEYS 白名单不变。
+- **client**：list 请求 module 级 in-flight 去重（family tab/row.config/bundle.config 三槽并发共享）；配置表单 3 键。
+- 测试 99 例（新增 7：collectPresets 声明/遗留/空安全 + eraCatalog + 桥 list/sync + runSync 全链确认闸；重写 autoFix 时代断言 3 处）。
+
+
 ## 0.5.0 (2026-10-08)
 
 设置面三代 waist 下探 + client 半边（≤0.1.5 设置页插件配置卡）。

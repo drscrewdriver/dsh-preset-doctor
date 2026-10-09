@@ -97,10 +97,11 @@ test('runScanFix scan 模式（经 /preset-doctor 命令 handler）', async (t) 
   // scan 不写盘
   assert.equal(fs.readFileSync(file, 'utf8'), before)
 
-  // autoFix 总闸默认关：fix 子命令也不写盘（2026-10-08 手动确认定案）
-  const blockedResult = registered.handler({ rawInput: 'fix' })
-  assert.equal(blockedResult.kind, 'text')
-  assert.equal(fs.readFileSync(file, 'utf8'), before, 'autoFix=false 时 fix 子命令同样只报告')
+  // 2026-10-09「取消自动闸 全手动确认」：显式 fix 命令即手动确认，写盘 + .bak
+  const fixedResult = registered.handler({ rawInput: 'fix' })
+  assert.equal(fixedResult.kind, 'text')
+  assert.ok(fs.readFileSync(file, 'utf8').includes('workflow-ptc'), '显式 fix 命令应写盘修复')
+  assert.ok(fs.readdirSync(home).some((f) => f.startsWith('cordis.patch.yml.bak-')), '写盘前应有 .bak 备份')
 })
 
 test('autoFix=true 时 /preset-doctor fix 手动写盘修复（手动确认路径）', async (t) => {
@@ -140,5 +141,5 @@ test('report：normalizeFindings 排序编号 + renderText/renderJson 关键内�
 test('Config 是 schemastery 对象（volatile 字段自动表单）', () => {
   // schemastery 对象可被引用即可；具体表单渲染由 DSH settings 服务负责
   assert.ok(Config)
-  assert.equal(typeof DEFAULT_SETTINGS.autoFix, 'boolean')
+  assert.equal(typeof DEFAULT_SETTINGS.scanProfiles, 'boolean')
 })

@@ -44,6 +44,162 @@ export function eraAnalysis(findings) {
   return [...byPreset.values()]
 }
 
+/**
+ * 代际目录（展示名自梳理，由 branches.json 的 presetFormat 派生，不新建表）：
+ * 官方 PresetDefinition 无任何版本字段，「代际」是本插件自产概念。
+ */
+export const ERA_CATALOG = Object.freeze([
+  Object.freeze({
+    format: 'legacy-dir',
+    name: '目录预设期',
+    range: '0.1.0 – 0.1.5',
+    note: '.agent-presets/<id>/ 目录即格式；agent.cordis.yml 就地令牌修复',
+  }),
+  Object.freeze({
+    format: 'declarative-patch',
+    name: '声明 Patch 期',
+    range: '0.1.7α1+（含 0.2.0）',
+    note: 'cordis.patch.yml 声明式插入（- insert:），预设声明字节级冻结',
+  }),
+])
+
+/** 当前分支所处代际（catalog 内引用）。 */
+export function eraForBranch(branch) {
+  const format = branch?.presetFormat
+  return ERA_CATALOG.find((e) => e.format === format) ?? ERA_CATALOG[ERA_CATALOG.length - 1]
+}
+
+/** 代际目录 + 当前高亮（桥 list 路由消费）。 */
+export function eraCatalogFor(branch) {
+  const current = eraForBranch(branch)
+  return ERA_CATALOG.map((e) => ({ ...e, current: e.format === current.format }))
+}
+
+/** 从 preset 行的 config 节点读标量展示字段（容错：非映射/缺键返 undefined）。 */
+function configScalar(configNode, key) {
+  if (!configNode || typeof configNode.get !== 'function') return undefined
+  try {
+    const v = configNode.get(key)
+    if (v === undefined || v === null) return undefined
+    return typeof v === 'string' ? v : String(v)
+  } catch {
+    return undefined
+  }
+}
+
+function displayId(row) {
+  return (
+    row.presetId ??
+    (typeof row.id === 'string' && row.id.startsWith('preset-') ? row.id.slice('preset-'.length) : row.id) ??
+    `#${row.line ?? '?'}`
+  )
+}
+
+/**
+ * 预设清单（卡片化 UI 的数据源）——union 三路后 (id,file) 去重：
+ * ① 声明式分支 sources[].presetRows（home/profile patch 声明）
+ * ② 遗留目录 findings（R-LEGACY / R-LEGACY-CONFLICT 的 data.legacy，声明式分支下目录只出现在 findings）
+ * ③ 目录分支 sources[].rows（layer='legacy-dir'，目录即原生格式，无 presetRows）
+ * 健康预设没有 eraAnalysis 条目 → 补 current；全程空安全（旧 scanResult 无 sources 不炸）。
+ */
+export function collectPresets(scanResult) {
+  const sources = Array.isArray(scanResult?.sources) ? scanResult.sources : []
+  const findings = Array.isArray(scanResult?.findings) ? scanResult.findings : []
+  const eraByPreset = new Map(eraAnalysis(findings).map((e) => [e.preset, e]))
+  const presets = []
+  const seen = new Set()
+
+  const brokenFor = (p) =>
+    findings.filter((f) => {
+      if (f.rule === 'R-LEGACY' || f.rule === 'R-LEGACY-CONFLICT') {
+        return p.source === 'legacy' && f.file === p.file
+      }
+      const pid = f.presetId ?? (typeof f.rowId === 'string' && f.rowId.startsWith('preset-') ? f.rowId.slice('preset-'.length) : f.rowId)
+      return pid === p.id && f.file === p.file
+    })
+
+  const push = (p) => {
+    const key = `${p.source}|${p.id}|${p.file}`
+    if (seen.has(key)) return
+    seen.add(key)
+    p.key = key
+    p.broken = brokenFor(p)
+    const era = eraByPreset.get(String(p.id))
+    if (era) p.era = { baseEra: era.baseEra, hops: era.hops }
+    p.current = p.broken.length === 0
+    p.syncable = !p.current && p.broken.some((f) => f.level === 'auto')
+    presets.push(p)
+  }
+
+  for (const src of sources) {
+    if (src.layer === 'legacy-dir') {
+      // 目录分支：目录本身即预设；id/metadata 从对应 legacy finding 取（可能没有）
+      const lf = findings.find(
+        (f) => (f.rule === 'R-LEGACY' || f.rule === 'R-LEGACY-CONFLICT') && f.data?.legacy?.compositionFile === src.file,
+      )
+      const legacy = lf?.data?.legacy
+      const id = legacy?.id ?? String(src.file).replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? 'legacy-dir'
+      const meta = lf?.data?.metadata ?? {}
+      push({
+        source: 'legacy',
+        id,
+        name: typeof meta.name === 'string' ? meta.name : undefined,
+        description: typeof meta.description === 'string' ? meta.description : undefined,
+        file: src.file,
+        line: 0,
+      })
+      continue
+    }
+    for (const row of Array.isArray(src.presetRows) ? src.presetRows : []) {
+      if (!row.presetId && !row.id) continue
+      const id = String(displayId(row))
+      push({
+        source: src.layer === 'home' ? 'home' : `profile:${src.profile ?? ''}`,
+        id,
+        name: configScalar(row.configNode, 'name'),
+        description: configScalar(row.configNode, 'description'),
+        file: src.file,
+        line: row.line ?? 0,
+      })
+    }
+  }
+  // 遗留目录只出现在 findings 的形态（声明式分支）：sources 里没有它的源
+  for (const f of findings) {
+    if (f.rule !== 'R-LEGACY' && f.rule !== 'R-LEGACY-CONFLICT') continue
+    const legacy = f.data?.legacy
+    if (!legacy) continue
+    const meta = f.data?.metadata ?? {}
+    push({
+      source: 'legacy',
+      id: String(legacy.id),
+      name: typeof meta.name === 'string' ? meta.name : undefined,
+      description: typeof meta.description === 'string' ? meta.description : undefined,
+      file: legacy.dir,
+      line: 0,
+    })
+  }
+
+  presets.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+  return presets
+}
+
+/** 面向 UI 的预设轻量视图（broken 摘去内部 data；key 供 sync 回传）。 */
+export function presetsForUi(presets) {
+  return presets.map((p) => ({
+    key: p.key,
+    id: p.id,
+    name: p.name ?? `${p.id}（未命名）`,
+    description: p.description ?? '',
+    source: p.source,
+    file: p.file,
+    line: p.line ?? 0,
+    era: p.era ?? null,
+    current: p.current,
+    syncable: p.syncable,
+    broken: p.broken.map((f) => ({ rule: f.rule, level: f.level, line: f.line, reason: f.reason, suggestion: f.suggestion })),
+  }))
+}
+
 export function summarize(scanResult, fixResult) {
   const findings = normalizeFindings(scanResult.findings)
   const byLevel = { auto: 0, report: 0 }
@@ -69,6 +225,7 @@ export function summarize(scanResult, fixResult) {
     byLevel,
     byRule,
     findings,
+    presets: presetsForUi(collectPresets(scanResult)),
     eras: eraAnalysis(findings),
     fix: fixResult
       ? {

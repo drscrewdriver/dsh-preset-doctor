@@ -88,7 +88,7 @@ npm run table-build -- --repo <dsh 源码仓库> --from dsh-v0.1.5-rc.3 --to dsh
 - 写前自动备份 `<file>.bak-<时间戳>`；临时文件 + rename 原子替换
 - 幂等：同一输入重复运行，第二次 0 写操作
 - UTF-8 无 BOM；CRLF/LF 行尾保持
-- `autoFix` 关闭后全程 0 写盘，只出报告
+- 写盘只经显式手动确认：卡内「同步到当前版本」按钮（确认框）或 `/preset-doctor fix` 命令；启动扫描恒只报告（0.6.0 起 autoFix 总闸退役）
 
 ## 使用
 
@@ -132,7 +132,7 @@ dsh plugin add dsh-preset-manager
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `autoFix` | `true` | 启动扫描后自动修复（关闭则只报告） |
+
 | `scanProfiles` | `true` | 同时扫描 profile 级 patch |
 | `migrateLegacy` | `true` | 自动迁移旧格式目录 |
 | `homeOverride` | `''` | 覆盖扫描根目录（测试/多实例用） |

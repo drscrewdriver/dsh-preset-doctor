@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { scanAll } from '../src/scan.js'
 import { collectPresets, summarize, eraCatalogFor } from '../src/report.js'
-import { makeSettingsBridge, isLoopbackRequest } from '../src/bridge.js'
+import { makeSettingsBridge } from '../src/bridge.js'
 import { resolveConfig } from '../src/index.js'
 
 function tmpHome(t) {

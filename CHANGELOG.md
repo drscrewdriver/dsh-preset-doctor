@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1 (2026-10-17)
+
+装载判据补齐宿主 `0.2.1-rc.1`（纯 manifest 收紧，无代码逻辑变更）。
+
+- **双清单同串**：`engines.dsh`、`dsh.plugin.json engines.dsh`、renderer peer `@deepseek-ai/dsh-client-ui-renderer`、`dsh.compatibility.dshReleases` 四处写点统一为逐 rc 精确枚举（16 项，`0.1.0-rc.2 … 0.2.0-rc.2 || 0.2.1-rc.1`），无区间/caret
+- **收紧反模式**：`engines.dsh` 原 `>=0.1.1-rc.1`（无上界、且窄于 peers）与分支表「最老支持线含 0.1.0.x」矛盾——会静默阻断未测宿主且拒载 0.1.0-rc.x。改为精确枚举后拉宽至与 peers/compat 同域，semver 双向验证命中 `0.2.1-rc.1`、拒绝 `0.3.0-rc.1`
+- 版本归一 `0.6.0-local.1` → `0.6.1`（`-local` 后缀不入 npm）
+
 ## 0.6.0 (2026-10-09)
 
 预设医生卡片化改版 + autoFix 总闸退役（2026-10-09 用户定案「取消自动闸 全手动确认」）。

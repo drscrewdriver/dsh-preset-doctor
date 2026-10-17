@@ -9,9 +9,12 @@
  *
  * 用法：
  *   node tools/table-build.mjs --repo <dsh-src> --from dsh-v0.1.6-alpha.2 --to dsh-v0.2.0-rc.2 [--json]
+ *   node tools/table-build.mjs --repo <dsh-src> --composition --all-tags [--out <file>]  # 逐版内置预设行集基线
  * 退出码：0=无提案；2=有提案；3=存在无法配对的增删（需人工考古）
  */
 import { execFileSync } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+import { compareSemver } from '../src/tables/load.js'
 
 const PKG_REF_RE = /@deepseek-ai\/[A-Za-z0-9._/-]+/g
 
@@ -135,20 +138,101 @@ function collectTagFiles(repo, tag) {
   return files
 }
 
+// ── composition 模式：逐版本内置预设「行集」基线（供 R-COMPOSITION-DRIFT 用）──
+
+/** 声明式 web-app 预设文件路径（仅 0.1.7-alpha.1+ 存在）。 */
+const WEBAPP_PRESET_RE = /packages\/bundle\/web-app\/presets\/([^/]+)\.patch\.yml$/
+
+/** 抽一个 patch 文件里所有 `- id: <rowId>` 行 id（保序去重；含组内嵌套成员）。 */
+export function extractRowIds(text) {
+  return [...new Set([...String(text ?? '').matchAll(/^\s*-\s*id:\s*(\S+)/gm)].map((m) => m[1]))]
+}
+
+/** 从 web-app 预设文件路径取预设名（standard/cordis/ptc/minimal）。 */
+function presetKeyFromPath(p) {
+  const m = WEBAPP_PRESET_RE.exec(p)
+  return m ? m[1] : null
+}
+
+/** 列仓库全部 dsh-v0* tag。 */
+function gitTags(repo) {
+  return execFileSync('git', ['-C', repo, 'tag'], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+    .split('\n').map((s) => s.trim()).filter((t) => /^dsh-v0/.test(t))
+}
+
+/**
+ * 单个 tag 的内置预设行集快照；无声明式预设（<0.1.7-alpha.1）→ null（跳过，不记空集）。
+ * @returns {{version:string, presets:Record<string,string[]>}|null}
+ */
+export function collectCompositionSnapshot(repo, tag, show = gitShow, list = gitListPresetFiles) {
+  const files = list(repo, tag).filter((f) => WEBAPP_PRESET_RE.test(f))
+  const presets = {}
+  for (const f of files) {
+    const key = presetKeyFromPath(f)
+    if (!key) continue
+    const text = show(repo, tag, f)
+    if (text != null) presets[key] = extractRowIds(text)
+  }
+  return Object.keys(presets).length ? { version: String(tag).replace(/^dsh-v/, ''), presets } : null
+}
+
+/**
+ * 遍历多 tag 构建基线（按 version 升序）。纯函数：注入 show/list 便于单测。
+ */
+export function buildBaseline(repo, tags, show, list) {
+  const snapshots = []
+  for (const t of tags) {
+    const snap = collectCompositionSnapshot(repo, t, show, list)
+    if (snap) snapshots.push(snap)
+  }
+  snapshots.sort((a, b) => compareSemver(a.version, b.version))
+  return {
+    schemaVersion: 1,
+    note: '内置 shipped 预设逐版本行集快照，由 tools/table-build.mjs --composition 生成；追加不改历史。',
+    snapshots,
+  }
+}
+
 function parseArgs(argv) {
-  const args = { repo: '.', from: '', to: '', json: false }
+  const args = { repo: '.', from: '', to: '', json: false, composition: false, allTags: false, out: '' }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--repo') args.repo = argv[++i]
     else if (argv[i] === '--from') args.from = argv[++i]
     else if (argv[i] === '--to') args.to = argv[++i]
     else if (argv[i] === '--json') args.json = true
+    else if (argv[i] === '--composition') args.composition = true
+    else if (argv[i] === '--all-tags') args.allTags = true
+    else if (argv[i] === '--out') args.out = argv[++i]
   }
-  if (!args.from || !args.to) throw new Error('用法: node tools/table-build.mjs --repo <dsh-src> --from <tag> --to <tag> [--json]')
+  if (args.composition) {
+    if (!args.allTags && !(args.from && args.to)) throw new Error('composition 模式需 --all-tags 或 --from/--to 限定 tag 范围')
+    return args
+  }
+  if (!args.from || !args.to) throw new Error('用法: node tools/table-build.mjs --repo <dsh-src> --from <tag> --to <tag> [--json] | --composition --all-tags [--out f]')
   return args
+}
+
+function runComposition(args) {
+  const tags = args.allTags
+    ? gitTags(args.repo)
+    : gitTags(args.repo).filter((t) => {
+        const v = t.replace(/^dsh-v/, '')
+        return compareSemver(v, args.from.replace(/^dsh-v/, '')) >= 0 && compareSemver(v, args.to.replace(/^dsh-v/, '')) <= 0
+      })
+  const baseline = buildBaseline(args.repo, tags, gitShow, gitListPresetFiles)
+  const json = JSON.stringify(baseline, null, 2) + '\n'
+  if (args.out) {
+    writeFileSync(args.out, json, 'utf8')
+    console.log(`baseline → ${args.out}（${baseline.snapshots.length} 个版本快照）`)
+  } else {
+    console.log(json)
+  }
+  return { status: baseline.snapshots.length ? 2 : 3, result: baseline }
 }
 
 export function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv)
+  if (args.composition) return runComposition(args)
   const oldFiles = collectTagFiles(args.repo, args.from)
   const newFiles = collectTagFiles(args.repo, args.to)
   const result = diffShipped(oldFiles, newFiles, { fromTag: args.from, toTag: args.to })

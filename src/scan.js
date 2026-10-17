@@ -17,7 +17,8 @@ import { checkConfigKeys } from './rules/persona.js'
 import { checkLegacyDirs } from './rules/legacy.js'
 import { checkDupIds } from './rules/dup-id.js'
 import { checkShadowedIds } from './rules/shadow.js'
-import { loadTables, branchById, branchForVersion, loadBranches } from './tables/load.js'
+import { checkCompositionDrift } from './rules/composition-drift.js'
+import { loadTables, branchById, branchForVersion, loadBranches, loadBaseline, baselineForVersion } from './tables/load.js'
 import { detectDshVersion } from './host-version.js'
 
 function isMapNode(node) {
@@ -323,6 +324,14 @@ export function scanAll({ home, scanProfiles = true, migrateLegacy = true, resol
   }
   findings.push(...checkDupIds(sources))
   findings.push(...checkShadowedIds(sources, resolvePkg ? { resolvePkg } : {}))
+  // R-COMPOSITION-DRIFT：用户覆盖内置预设的行集 vs 运行版本基线（仅声明式时代有基线）
+  findings.push(
+    ...checkCompositionDrift(sources, {
+      baseline: baselineForVersion(detected),
+      allBaselines: loadBaseline(),
+      currentVersion: detected,
+    }),
+  )
   if (migrateLegacy && !stages.migrateLegacy) {
     warnings.push(`设置 migrateLegacy=true 在分支 ${active?.id} 上不生效：该线目录是原生预设格式（无声明式机制）`)
   }

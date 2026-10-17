@@ -148,6 +148,42 @@ export function makeSettingsBridge({ settings, ns, resolveConfig, context } = {}
         return { ok: false, code: 'internal', message: error instanceof Error ? error.message : String(error) }
       }
     },
+
+    /** composition 对齐：行级删除漂移行。body {file, presetId, confirm:true}。 */
+    async align(request) {
+      if (typeof ext.runAlign !== 'function') {
+        return { ok: false, code: 'unavailable', message: 'align provider not wired' }
+      }
+      if (request === null || typeof request !== 'object' || typeof request.file !== 'string' || typeof request.presetId !== 'string') {
+        return { ok: false, code: 'align-rejected', message: 'malformed align request (file+presetId required)' }
+      }
+      if (request.confirm !== true) {
+        return { ok: false, code: 'align-rejected', message: '写盘需显式确认 confirm:true' }
+      }
+      try {
+        return { ok: true, value: ext.runAlign(request) }
+      } catch (error) {
+        return { ok: false, code: 'internal', message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    /** 行级 toggle：置/解某行 disabled。body {file, presetId, rowId, disabled, confirm:true}。 */
+    async toggle(request) {
+      if (typeof ext.runToggle !== 'function') {
+        return { ok: false, code: 'unavailable', message: 'toggle provider not wired' }
+      }
+      if (request === null || typeof request !== 'object' || typeof request.file !== 'string' || typeof request.presetId !== 'string' || typeof request.rowId !== 'string') {
+        return { ok: false, code: 'toggle-rejected', message: 'malformed toggle request (file+presetId+rowId required)' }
+      }
+      if (request.confirm !== true) {
+        return { ok: false, code: 'toggle-rejected', message: '写盘需显式确认 confirm:true' }
+      }
+      try {
+        return { ok: true, value: ext.runToggle(request) }
+      } catch (error) {
+        return { ok: false, code: 'internal', message: error instanceof Error ? error.message : String(error) }
+      }
+    },
   }
 
   const guard = (req, res) => {
@@ -204,6 +240,24 @@ export function makeSettingsBridge({ settings, ns, resolveConfig, context } = {}
           return
         }
         writeJson(res, 200, await handlers.sync(body))
+      },
+    },
+    {
+      kind: 'exact',
+      path: `${BRIDGE_PREFIX}/align`,
+      handler: async (req, res) => {
+        if (!guard(req, res)) return
+        const body = await readJsonBody(req)
+        writeJson(res, 200, await handlers.align(body ?? {}))
+      },
+    },
+    {
+      kind: 'exact',
+      path: `${BRIDGE_PREFIX}/toggle`,
+      handler: async (req, res) => {
+        if (!guard(req, res)) return
+        const body = await readJsonBody(req)
+        writeJson(res, 200, await handlers.toggle(body ?? {}))
       },
     },
   ]

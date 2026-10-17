@@ -3,16 +3,28 @@
   "$comment": "适配分支表：每条宿主主线一个分支，按运行宿主版本自动选择。铁律与 changes.json 相同：只追加，不改历史条目；新宿主线发布时在数组头部（main 之下）插入新分支。字段：hostRange=宿主版本选择范围（与 compareSemver 兼容的 >=/< 子句，各分支范围连续拼接、不留洞）；endpoint=处理终点（该线终版，事件表按它截断）；baseline=实测基线 tag；peer=该线 vendor/cordis 实证版本；stages=算法档位（scanPatches=扫 patch 声明、migrateLegacy=遗留目录 L1+L2 迁移、fixLegacyInPlace=目录内就地修令牌）。npmTag=该线插件发布 dist-tag（对齐 host-matrix-rollout 惯例）。",
   "branches": [
     {
+      "id": "dsh-0.2.1",
+      "line": "0.2.1",
+      "hostRange": ">=0.2.1-rc.1",
+      "endpoint": "0.2.1-rc.1",
+      "baseline": "0.2.1-rc.1",
+      "peer": { "package": "@deepseek-ai/cordis", "version": "4.0.5" },
+      "presetFormat": "declarative-patch",
+      "stages": { "scanPatches": true, "migrateLegacy": true, "fixLegacyInPlace": false },
+      "npmTag": "dsh-0.2.1",
+      "note": "0.2.1 线。内置 shipped 预设组合自 0.2.1-alpha.1 起发生漂移（+time-context/tool-schedule，alpha.2 −tool-subagent-codex/claude-code/tool-ralph，alpha.3 minimal +tool-fs/compaction，alpha.4 +tool-plugin-market），见 preset-baseline.json。"
+    },
+    {
       "id": "main",
       "line": "0.2.0",
-      "hostRange": ">=0.2.0-rc.1",
+      "hostRange": ">=0.2.0-rc.1 <0.2.1-rc.1",
       "endpoint": "0.2.0-rc.2",
       "baseline": "0.2.0-rc.2",
       "peer": { "package": "@deepseek-ai/cordis", "version": "4.0.4" },
       "presetFormat": "declarative-patch",
       "stages": { "scanPatches": true, "migrateLegacy": true, "fixLegacyInPlace": false },
       "npmTag": "dsh-0.2.0",
-      "note": "main 线。官方预设自 0.1.7-alpha.1 起字节级冻结（0.1.7-rc.2 = 0.2.0-rc.1 = rc.2，2026-10-01 逐段复核），事件表与 dsh-0.1.7 相同。"
+      "note": "main（0.2.0）线。官方预设自 0.1.7-alpha.1 到 0.2.0-rc.2 字节级冻结（preset-baseline 已逐 tag 复核）；但 0.2.1 起组合漂移——冻结假设仅对 ≤0.2.0 成立，见 dsh-0.2.1 分支。"
     },
     {
       "id": "dsh-0.1.7",

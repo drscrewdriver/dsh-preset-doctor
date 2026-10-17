@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0 (2026-10-18)
+
+内置预设「组合基线 + 版本漂移检测 + 行级三档开关」——回溯整条线上内置标准组合，按当前运行版本对齐，避免跨版本错配（如 0.2.0 用 time-context / 0.2.1 用 tool-subagent-codex 这种反向）。
+
+- **P0 逐版本基线表**：`tools/table-build.mjs --composition` 遍历 harness git tag 抽取逐版内置预设行集 → `src/tables/preset-baseline.json`（13 版快照）；`load.js` 加 `loadBaseline()/baselineForVersion()`；`branches.json` 新增 `dsh-0.2.1` 分支并更正「组合冻结」note（0.2.1 起漂移）。
+- **P1 R-COMPOSITION-DRIFT**：`src/rules/composition-drift.js` 逐行三分类（introduced/removed/自定义），report 级不自动写盘；`scan.js` 注册。
+- **P1b 行级对齐**：`src/fix/row-edit.js`（文本级 span 原语，区间外字节/注释不动）+ `src/fix/composition-align.js`（删漂移行、报缺失标准行）+ `runAlign`；`fix/core.js` 支持零宽插入。
+- **P2 卡内行视图**：`getSummary` 暴露 `composition`（对所有声明式预设列行，含自定义 id）；`classifyComposition` 逐行标 `state`/`defaultOn`/`triState`。
+- **P3 行级三档 toggle**：`runToggle` 收 `mode`（follow/on/off），follow 按当前版本参照预设（命中内置→自身，自定义 id→回退 standard）默认解析；桥 `/toggle` `/align` 路由（confirm 双门 + loopback 守卫）。
+- **UI（lib/client.js）**：行开关**嵌入每张预设卡**（可展开 `<details>`）；每行**三档滑块** `[跟随 | 关闭 | 开启]`，行中间独立彩色条标注**当前版本基准**（`基准·启用`/`基准·停用`）；代际改**两层显示**（大代=格式目录/声明，小代=rc 线，当前高亮）。
+- 测试 127 例（+28：baseline/漂移/对齐/行编辑/三档分类/toggle mode 解析）；lint 0；农场 0.2.1-rc.1 格实测 composition/漂移/triState 全链路跑通。
+
 ## 0.6.1 (2026-10-17)
 
 装载判据补齐宿主 `0.2.1-rc.1`（纯 manifest 收紧，无代码逻辑变更）。

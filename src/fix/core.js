@@ -39,14 +39,15 @@ export function writeFileSafe(file, newText, originalText, { dryRun = false, ts 
   return { status: 'written', backup: fs.existsSync(backup) ? backup : undefined }
 }
 
-/** 在文本上应用一组 span 编辑（{start,end,text}），从后往前 splice；重叠视为程序错误抛出。 */
+/** 在文本上应用一组 span 编辑（{start,end,text}），从后往前 splice；重叠视为程序错误抛出。
+ *  允许 start===end 的零宽插入（text 为要插入的内容，不删任何字节）。 */
 export function spliceEdits(text, edits) {
-  const sorted = [...edits].sort((a, b) => b.start - a.start)
+  const sorted = [...edits].sort((a, b) => b.start - a.start || b.end - a.end)
   let out = text
   let prevStart = Infinity
   for (const e of sorted) {
     if (e.end > prevStart) throw new Error(`编辑区间重叠：[${e.start},${e.end}) 越过 ${prevStart}`)
-    if (e.start < 0 || e.end > text.length || e.start >= e.end) {
+    if (e.start < 0 || e.end > text.length || e.start > e.end) {
       throw new Error(`编辑区间非法：[${e.start},${e.end}) 文本长度 ${text.length}`)
     }
     out = out.slice(0, e.start) + e.text + out.slice(e.end)

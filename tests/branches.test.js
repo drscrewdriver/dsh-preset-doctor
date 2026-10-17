@@ -37,6 +37,8 @@ const oldLineResolve = () => ({ ok: true, resolvedVia: 'stub', resolvedPath: '' 
 
 test('分支解析：宿主版本 → 分支（范围连续拼接，无洞）', () => {
   const cases = [
+    ['0.2.1-rc.1', 'dsh-0.2.1'],
+    ['0.2.1-rc.2', 'dsh-0.2.1'],
     ['0.2.0-rc.2', 'main'],
     ['0.1.7-rc.2', 'dsh-0.1.7'],
     ['0.1.7-alpha.1', 'dsh-0.1.7'],
@@ -52,8 +54,10 @@ test('分支解析：宿主版本 → 分支（范围连续拼接，无洞）', 
   }
   assert.equal(branchForVersion(undefined), undefined, '检不出版本 → 调用方回退 main')
   assert.equal(branchById('main').endpoint, '0.2.0-rc.2')
+  assert.equal(branchById('dsh-0.2.1').endpoint, '0.2.1-rc.1')
+  assert.equal(branchById('dsh-0.2.1').peer.version, '4.0.5')
   assert.equal(branchById('dsh-0.1.5').peer.version, '4.0.2')
-  assert.equal(loadBranches().length, 5)
+  assert.equal(loadBranches().length, 6)
 })
 
 test('semverSatisfies：预发布边界（0.1.7-alpha.1 归 0.1.7 线）', () => {

@@ -17,9 +17,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import builtin from './changes.json' with { type: 'json' }
 import branchesBuiltin from './branches.json' with { type: 'json' }
+import baselineBuiltin from './preset-baseline.json' with { type: 'json' }
 
 export const BUILTIN_CHANGES = builtin
 export const BUILTIN_BRANCHES = branchesBuiltin.branches
+export const BUILTIN_BASELINE = baselineBuiltin.snapshots ?? []
 
 /** 用户覆盖表位置。 */
 export function userTablePath(home) {
@@ -195,4 +197,25 @@ export function branchForVersion(version, branches = loadBranches()) {
   return [...branches]
     .filter((b) => compareSemver(b.endpoint, version) < 0)
     .sort((a, b) => compareSemver(b.endpoint, a.endpoint))[0]
+}
+
+// ── 内置预设逐版本行集基线（composition） ──
+
+/** 基线快照表（内置只读；由 tools/table-build.mjs --composition 生成，追加不改历史）。 */
+export function loadBaseline() {
+  return BUILTIN_BASELINE
+}
+
+/**
+ * 取 ≤version 的最近一个内置预设快照（按 version 升序，用 compareSemver）。
+ * version 低于最早快照（<0.1.7-alpha.1，声明式前）或非法 → undefined（无从判定基线）。
+ * @param {string} version 宿主版本（如 0.2.1-rc.1）
+ * @param {Array<{version:string,presets:Record<string,string[]>}>} [snapshots]
+ * @returns {{version:string,presets:Record<string,string[]>}|undefined}
+ */
+export function baselineForVersion(version, snapshots = loadBaseline()) {
+  if (!version || !Array.isArray(snapshots) || snapshots.length === 0) return undefined
+  const eligible = snapshots.filter((s) => compareSemver(s.version, version) <= 0)
+  if (eligible.length === 0) return undefined
+  return eligible.reduce((best, s) => (compareSemver(s.version, best.version) > 0 ? s : best))
 }

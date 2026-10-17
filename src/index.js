@@ -13,10 +13,12 @@
 import z from '@deepseek-ai/schemastery'
 import { resolveDshHome } from './paths.js'
 import { scanAll } from './scan.js'
-import { applyFixes } from './fix/index.js'
+import { applyFixes, runAlign as alignPreset, runToggle as toggleRow } from './fix/index.js'
 import { defaultTimestamp } from './fix/core.js'
 import { summarize, renderText, renderJson, collectPresets, eraCatalogFor, DISCLAIMER } from './report.js'
 import { registerPresetDoctorCommand } from './commands.js'
+import { classifyComposition } from './rules/composition-drift.js'
+import { baselineForVersion, loadBaseline } from './tables/load.js'
 import { installSettingsWaist } from './settings-waist.js'
 import { makeSettingsBridge } from './bridge.js'
 
@@ -105,11 +107,25 @@ export function apply(ctx, config = {}) {
     const { home, scan } = lastScan
     const summary = summarize(scan, undefined)
     const cfg = current()
+    // composition 视图数据：逐覆盖内置预设的行分类（供卡面分组标注 + toggle/对齐）
+    const baseline = baselineForVersion(summary.detectedVersion)
+    const allBaselines = loadBaseline()
+    const composition = []
+    for (const src of scan.sources || []) {
+      for (const presetRow of src.presetRows || []) {
+        if (!presetRow.presetId) continue
+        composition.push({
+          file: src.file,
+          ...classifyComposition(src, presetRow, { baseline, allBaselines, currentVersion: summary.detectedVersion }),
+        })
+      }
+    }
     return {
       version: summary.detectedVersion,
       branch: summary.branch,
       eras: eraCatalogFor(summary.branch),
       presets: summary.presets,
+      composition,
       total: summary.total,
       byLevel: summary.byLevel,
       config: { scanProfiles: cfg.scanProfiles, migrateLegacy: cfg.migrateLegacy, homeOverride: cfg.homeOverride },
@@ -151,6 +167,22 @@ export function apply(ctx, config = {}) {
     }
   }
 
+  /** composition 对齐（桥 align 路由）：重扫取最新源 → 行级删漂移行（confirm 已在桥门）。 */
+  function runAlignAction({ file, presetId, dryRun } = {}) {
+    const cfg = current()
+    const home = resolveDshHome(cfg.homeOverride)
+    const scan = scanAll({ home, scanProfiles: cfg.scanProfiles, migrateLegacy: cfg.migrateLegacy })
+    return alignPreset(scan, { file, presetId, dryRun: dryRun === true, ts: defaultTimestamp() })
+  }
+
+  /** 行级三档 toggle（桥 toggle 路由）：重扫 → 置行 跟随/开启/关闭（confirm 双门）。 */
+  function runToggleAction({ file, presetId, rowId, mode, disabled, confirm, dryRun } = {}) {
+    const cfg = current()
+    const home = resolveDshHome(cfg.homeOverride)
+    const scan = scanAll({ home, scanProfiles: cfg.scanProfiles, migrateLegacy: cfg.migrateLegacy })
+    return toggleRow(scan, { file, presetId, rowId, mode, disabled, confirm: confirm === true, dryRun: dryRun === true, ts: defaultTimestamp() })
+  }
+
   // ── 三代设置 waist（0.1.2/0.1.5 installSection、0.1.0/0.1.1 register、
   //    rc.1+ loader volatile 存储无需动作，UI 走 client 卡）──
   installSettingsWaist(ctx, {
@@ -165,7 +197,7 @@ export function apply(ctx, config = {}) {
   // ── 设置桥（client 卡数据层；webServer 缺席的线自动 pending 不阻塞）──
   ctx.inject(['webServer', 'settings'], (sctx) => {
     sctx.effect(() => {
-      const routes = makeSettingsBridge({ settings: sctx.settings, ns: name, resolveConfig, context: { getSummary, runSync } })
+      const routes = makeSettingsBridge({ settings: sctx.settings, ns: name, resolveConfig, context: { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction } })
       const disposers = routes.map((route) => sctx.webServer.register(route))
       return () => {
         for (const dispose of disposers) dispose()
@@ -193,5 +225,5 @@ export function apply(ctx, config = {}) {
   ctx.effect(() => registerPresetDoctorCommand(ctx, (opts) => runScanFix(opts)), 'preset-manager: command register')
 
   // 供测试与高级宿主直接使用（宿主 apply 返回值照常忽略）
-  return { getSummary, runSync }
+  return { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction }
 }

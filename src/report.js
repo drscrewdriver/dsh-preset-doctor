@@ -5,7 +5,7 @@
  * 不保证「行为等价」。
  */
 
-import { compareSemver } from './tables/load.js'
+import { compareSemver, loadBranches } from './tables/load.js'
 
 export const DISCLAIMER =
   '注意：本报告只保证修复后的预设「语法合法、可加载」；不保证与旧版本「行为等价」。修复生效需重启 DSH 进程。'
@@ -58,8 +58,8 @@ export const ERA_CATALOG = Object.freeze([
   Object.freeze({
     format: 'declarative-patch',
     name: '声明 Patch 期',
-    range: '0.1.7α1+（含 0.2.0）',
-    note: 'cordis.patch.yml 声明式插入（- insert:），预设声明字节级冻结',
+    range: '0.1.7α1+',
+    note: 'cordis.patch.yml 声明式插入（- insert:）。本代只管格式；内置组合于 0.2.1 起漂移属另一轴（见 preset-baseline / R-COMPOSITION-DRIFT），不在代标签里叠版本号',
   }),
 ])
 
@@ -69,10 +69,22 @@ export function eraForBranch(branch) {
   return ERA_CATALOG.find((e) => e.format === format) ?? ERA_CATALOG[ERA_CATALOG.length - 1]
 }
 
-/** 代际目录 + 当前高亮（桥 list 路由消费）。 */
+/** 代际目录 + 当前高亮（桥 list 路由消费）。两层：大代=格式（目录/声明），小代=该格式下的 rc 线。 */
 export function eraCatalogFor(branch) {
-  const current = eraForBranch(branch)
-  return ERA_CATALOG.map((e) => ({ ...e, current: e.format === current.format }))
+  const branches = loadBranches()
+  const curFormat = branch?.presetFormat
+  const curLine = branch?.line
+  return ERA_CATALOG.map((e) => {
+    const minors = branches
+      .filter((b) => b.presetFormat === e.format)
+      .map((b) => b.line)
+      .sort(compareSemver)
+    return {
+      ...e,
+      current: e.format === curFormat,
+      minors: minors.map((line) => ({ line, current: e.format === curFormat && line === curLine })),
+    }
+  })
 }
 
 /** 从 preset 行的 config 节点读标量展示字段（容错：非映射/缺键返 undefined）。 */

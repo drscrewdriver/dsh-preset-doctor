@@ -43,8 +43,8 @@ export function checkLegacyDirs(legacyDirs, declaredPresetIds) {
         line: 0,
         rowId: `preset-${legacy.id}`,
         reason: `旧格式目录 .agent-presets/${legacy.id} 与 patch 声明（${declared.map((d) => `${d.file}`).join(', ')}）同时存在，会重复插入同一预设`,
-        suggestion: '二选一：删除遗留目录（推荐，声明已迁移），或删除 patch 中对应声明',
-        data: { legacy },
+        suggestion: '二选一：归档遗留目录（推荐，声明已迁移），或删除 patch 中对应声明；卡内「同步到当前版本」可授权自动收尾',
+        data: { legacy, declared },
       })
       continue
     }

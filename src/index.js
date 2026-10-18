@@ -13,7 +13,7 @@
 import z from '@deepseek-ai/schemastery'
 import { resolveDshHome } from './paths.js'
 import { scanAll } from './scan.js'
-import { applyFixes, runAlign as alignPreset, runToggle as toggleRow } from './fix/index.js'
+import { applyFixes, runAlign as alignPreset, runToggle as toggleRow, runResolveLegacy } from './fix/index.js'
 import { defaultTimestamp } from './fix/core.js'
 import { summarize, renderText, renderJson, collectPresets, eraCatalogFor, DISCLAIMER } from './report.js'
 import { registerPresetDoctorCommand } from './commands.js'
@@ -183,6 +183,14 @@ export function apply(ctx, config = {}) {
     return toggleRow(scan, { file, presetId, rowId, mode, disabled, confirm: confirm === true, dryRun: dryRun === true, ts: defaultTimestamp() })
   }
 
+  /** 遗留目录冲突的授权转写收尾（桥 resolve-legacy 路由）：重扫 → 对齐声明到当前版本默认预设参照 + 归档目录（confirm 硬门 + .bak 备份）。 */
+  function runResolveLegacyAction({ key, confirm, dryRun } = {}) {
+    const cfg = current()
+    const home = resolveDshHome(cfg.homeOverride)
+    const scan = scanAll({ home, scanProfiles: cfg.scanProfiles, migrateLegacy: cfg.migrateLegacy })
+    return runResolveLegacy(scan, { key, confirm: confirm === true, dryRun: dryRun === true, ts: defaultTimestamp() })
+  }
+
   // ── 三代设置 waist（0.1.2/0.1.5 installSection、0.1.0/0.1.1 register、
   //    rc.1+ loader volatile 存储无需动作，UI 走 client 卡）──
   installSettingsWaist(ctx, {
@@ -197,7 +205,7 @@ export function apply(ctx, config = {}) {
   // ── 设置桥（client 卡数据层；webServer 缺席的线自动 pending 不阻塞）──
   ctx.inject(['webServer', 'settings'], (sctx) => {
     sctx.effect(() => {
-      const routes = makeSettingsBridge({ settings: sctx.settings, ns: name, resolveConfig, context: { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction } })
+      const routes = makeSettingsBridge({ settings: sctx.settings, ns: name, resolveConfig, context: { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction, runResolveLegacy: runResolveLegacyAction } })
       const disposers = routes.map((route) => sctx.webServer.register(route))
       return () => {
         for (const dispose of disposers) dispose()
@@ -225,5 +233,5 @@ export function apply(ctx, config = {}) {
   ctx.effect(() => registerPresetDoctorCommand(ctx, (opts) => runScanFix(opts)), 'preset-manager: command register')
 
   // 供测试与高级宿主直接使用（宿主 apply 返回值照常忽略）
-  return { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction }
+  return { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction, runResolveLegacy: runResolveLegacyAction }
 }

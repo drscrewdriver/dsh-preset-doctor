@@ -139,7 +139,9 @@ export function collectPresets(scanResult) {
     const era = eraByPreset.get(String(p.id))
     if (era) p.era = { baseEra: era.baseEra, hops: era.hops }
     p.current = p.broken.length === 0
-    p.syncable = !p.current && p.broken.some((f) => f.level === 'auto')
+    // R-LEGACY-CONFLICT 虽为 report 级，但有独立授权转写收尾动作（resolve-legacy），
+    // 卡面同样可同步；其余 report 级仍不开放。
+    p.syncable = !p.current && p.broken.some((f) => f.level === 'auto' || f.rule === 'R-LEGACY-CONFLICT')
     presets.push(p)
   }
 

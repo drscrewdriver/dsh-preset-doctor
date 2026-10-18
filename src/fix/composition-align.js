@@ -57,3 +57,30 @@ export function planAlignForPreset(src, presetRow, { baseline, allBaselines } = 
 
   return { edits: dedupNested(rawEdits), removed, missing, baselineVersion: baseline.version }
 }
+
+/**
+ * 自定义 id 预设的对齐（无自身基线）：以「当前版本默认预设」为参照——
+ * 行集参照 = 当前基线快照里**全部**内置预设成员的并集（活的官方行）。
+ * 删：曾是任一版本任一内置预设成员、但当前版本已彻底不活的行（死标准成员）；
+ * 留：任何基线都没出现过的行（用户自定义/第三方，无从判定绝不删）。
+ * 不报 missing：自定义预设本就是用户自选子集，无「补齐标准行」语义。
+ */
+export function planAlignForCustomPreset(src, presetRow, { baseline, allBaselines } = {}) {
+  const pid = presetRow.presetId
+  const empty = { edits: [], removed: [], missing: [], baselineVersion: baseline?.version ?? '' }
+  if (!pid || !baseline || !Array.isArray(allBaselines)) return empty
+  const currentUnion = new Set(Object.values(baseline.presets ?? {}).flatMap((v) => (Array.isArray(v) ? v : [])))
+  const histUnion = new Set(
+    allBaselines.flatMap((s) => Object.values(s.presets ?? {}).flatMap((v) => (Array.isArray(v) ? v : []))),
+  )
+  const wrapper = `preset-${pid}`
+  const rawEdits = []
+  const removed = []
+  for (const row of src.rows) {
+    if (row === presetRow || !within(row, presetRow) || !row.id) continue
+    if (row.id === wrapper || currentUnion.has(row.id) || !histUnion.has(row.id)) continue
+    rawEdits.push(deleteItemEdit(src.text, row))
+    removed.push(row.id)
+  }
+  return { edits: dedupNested(rawEdits), removed, missing: [], baselineVersion: baseline.version }
+}

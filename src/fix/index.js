@@ -6,14 +6,18 @@
  *    按文件分组 → 规划 span → splice → 备份 + 原子写
  * 2. 遗留目录迁移（R-LEGACY）：合并排序后一次性追加进 home patch
  *
- * report 级 finding 一律不写盘。
+ * report 级 finding 一律不写盘；例外：R-LEGACY-CONFLICT 的授权转写收尾
+ * 走独立显式动作 runResolveLegacy（confirm 硬门），不经 applyFixes。
  */
 import { planFileEdits } from './planner.js'
 import { migrateLegacyDirs } from './migrate-legacy.js'
 import { planAlignForPreset } from './composition-align.js'
+import { runResolveLegacy } from './resolve-legacy.js'
 import { makeDisabledEdit, makeEnableEdit } from './row-edit.js'
 import { writeFileSafe, defaultTimestamp, displayPath, spliceEdits } from './core.js'
 import { baselineForVersion, loadBaseline } from '../tables/load.js'
+
+export { runResolveLegacy }
 
 export function applyFixes({ home, sources, findings, tables }, { dryRun = false, ts = defaultTimestamp() } = {}) {
   const results = {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1 (2026-10-18)
+
+- hosts: 追加 0.2.1-rc.2 声明面枚举（34/34 @deepseek-ai/* 宿主 peer 逐包 npm 实测 rc.2 在版；本插件不触 ctx.web provider 与 conversation.input.model.label 槽，代码零改动，纯元数据发版；农场 rc.2 格挂账待命）
+
 ## 0.7.0 (2026-10-18)
 
 内置预设「组合基线 + 版本漂移检测 + 行级三档开关」——回溯整条线上内置标准组合，按当前运行版本对齐，避免跨版本错配（如 0.2.0 用 time-context / 0.2.1 用 tool-subagent-codex 这种反向）。

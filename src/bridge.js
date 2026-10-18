@@ -184,6 +184,24 @@ export function makeSettingsBridge({ settings, ns, resolveConfig, context } = {}
         return { ok: false, code: 'internal', message: error instanceof Error ? error.message : String(error) }
       }
     },
+
+    /** 遗留目录冲突的授权转写收尾（对齐声明 + 归档目录）。body {key, confirm:true}。 */
+    async resolveLegacy(request) {
+      if (typeof ext.runResolveLegacy !== 'function') {
+        return { ok: false, code: 'unavailable', message: 'resolve-legacy provider not wired' }
+      }
+      if (request === null || typeof request !== 'object' || typeof request.key !== 'string' || !request.key) {
+        return { ok: false, code: 'resolve-legacy-rejected', message: 'malformed resolve request (key required)' }
+      }
+      if (request.confirm !== true) {
+        return { ok: false, code: 'resolve-legacy-rejected', message: '写盘需显式确认 confirm:true' }
+      }
+      try {
+        return { ok: true, value: ext.runResolveLegacy(request) }
+      } catch (error) {
+        return { ok: false, code: 'internal', message: error instanceof Error ? error.message : String(error) }
+      }
+    },
   }
 
   const guard = (req, res) => {
@@ -258,6 +276,19 @@ export function makeSettingsBridge({ settings, ns, resolveConfig, context } = {}
         if (!guard(req, res)) return
         const body = await readJsonBody(req)
         writeJson(res, 200, await handlers.toggle(body ?? {}))
+      },
+    },
+    {
+      kind: 'exact',
+      path: `${BRIDGE_PREFIX}/resolve-legacy`,
+      handler: async (req, res) => {
+        if (!guard(req, res)) return
+        const body = await readJsonBody(req)
+        if (body === undefined) {
+          writeJson(res, 400, { ok: false, code: 'resolve-legacy-rejected', message: 'malformed JSON body' })
+          return
+        }
+        writeJson(res, 200, await handlers.resolveLegacy(body))
       },
     },
   ]

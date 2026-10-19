@@ -74,12 +74,19 @@ function versionsWith(allBaselines, pid, rid) {
  * @returns {{presetId, baselineVersion, rows:[{id,line,disabled,defaultOn,triState,state,driftKind,firstVer,lastVer}], missing:string[]}}
  *   state: 'shipped'（当前基线有）| 'drift'（他版本成员）| 'custom'（任何基线都无）
  *   defaultOn: 该行在「当前版本参照预设」默认组合里（自定义 id 预设→参照 standard；命中内置 id→参照自身）
+ *   noBaseline: 该行在**任何版本任何内置预设**都未出现过（基准项逻辑上不存在）——
+ *     用户定案（2026-10-19）：逻辑上不存在对应项→默认按关闭解析（defaultOn=false），
+ *     UI 诚实标「无基准·默认停用」；兜底失效手段保留：置 disabled / 手工改名失效。
  *   triState: 三档派生态 'follow'（状态==默认）| 'on'（强制开，默认本关）| 'off'（强制关，默认本开）
  */
 export function classifyComposition(src, presetRow, { baseline, allBaselines, currentVersion } = {}) {
   const pid = presetRow.presetId
   const baseRows = new Set(baseline?.presets?.[pid] || [])
   const union = new Set((allBaselines || []).flatMap((s) => s.presets?.[pid] || []))
+  // 全局基准项存在性：跨全部快照、全部内置预设的并集（区别于上面按 pid 的 union）
+  const anyBaselineUnion = new Set(
+    (allBaselines || []).flatMap((s) => Object.values(s.presets ?? {}).flatMap((v) => (Array.isArray(v) ? v : []))),
+  )
   // 三档「跟随」的默认值参照：命中内置预设→用自身基线；自定义 id→回退 standard。
   const refPid = baseline?.presets?.[pid] ? pid : 'standard'
   const defaultSet = new Set(baseline?.presets?.[refPid] || [])
@@ -108,9 +115,10 @@ export function classifyComposition(src, presetRow, { baseline, allBaselines, cu
       disabled = d === true || d === 'true'
     } catch { /* 保守：读不到当未禁用 */ }
     const defaultOn = defaultSet.has(row.id)
+    const noBaseline = !anyBaselineUnion.has(row.id)
     const enabled = !disabled
     const triState = enabled === defaultOn ? 'follow' : (enabled ? 'on' : 'off')
-    rows.push({ id: row.id, line: row.line, disabled, defaultOn, triState, state, driftKind, firstVer, lastVer })
+    rows.push({ id: row.id, line: row.line, disabled, defaultOn, noBaseline, triState, state, driftKind, firstVer, lastVer })
   }
   const userSet = new Set(rows.map((r) => r.id))
   const missing = [...baseRows].filter((id) => id !== `preset-${pid}` && !userSet.has(id))

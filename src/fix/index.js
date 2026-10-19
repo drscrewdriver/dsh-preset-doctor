@@ -105,7 +105,10 @@ export function runAlign(scanResult, { file, presetId, dryRun = false, ts = defa
  *  - mode 'on'  → 去 `disabled`（启用）
  *  - mode 'off' → 置 `disabled: true`（禁用）
  *  - mode 'follow' → 按「当前版本参照预设」默认解析：在默认集→启用，否则→禁用
- *    （参照预设：presetId 命中内置→自身；自定义 id→回退 standard）
+ *    （参照预设：presetId 命中内置→自身；自定义 id→回退 standard）。
+ *    用户定案（2026-10-19）：基准项逻辑上不存在（任何内置预设都无此行为）同样
+ *    按关闭解析；若用户确需保留这类自有工具行，用 'on' 强制开启，兜底另有
+ *    置 disabled/改名失效两个手工手段（不依赖本工具）。
  * 行不存在于该预设（如它只在内置 shipped standard、用户无覆盖预设）→ row-not-in-preset。
  * 向后兼容：未传 mode 而传 `disabled`（旧布尔）时按 off/on 映射。
  */

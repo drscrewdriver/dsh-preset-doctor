@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.3 (2026-10-19)
+
+行开关基准语义定案（2026-10-19 用户裁决）：基准项逻辑上不存在→默认按关闭解析，UI 诚实区分「无基准」与「基准存在但停用」，并保留兜底失效手段。
+
+- **`classifyComposition` 新增行级 `noBaseline`**：跨全部快照×全部内置预设求并集判定——仅当该行从未进过任何内置预设才为真（区别于「活在 minimal 但参照 standard 无」的基准·停用态）。
+- **UI（lib/client.js）**：`noBaseline` 行徽章改标「无基准·默认停用」（原一律显示「基准·停用」，掩盖了基准项为空的事实）；tooltip 写明解析规则与两个兜底失效手段：置「关闭」写 `disabled:true`、手工改名行 name 令其加载失效；三档按钮不动（跟随对这类行本就解析为停用）。
+- 测试 +1（noBaseline 跨预设/跨快照边界用例）+2 断言；135 例全绿。
+
+## 0.7.2 (2026-10-18)
+
+恢复「授权转写」：R-LEGACY-CONFLICT（遗留目录 + patch 已有同 id 转写声明）不再卡「需人工」，卡内「同步到当前版本」一键授权收尾（2026-10-18 用户定案：双确认提示 + 操作前备份即可，不强制手工操作）。
+
+- **转写收尾动作**（`src/fix/resolve-legacy.js`）：① 把既有转写声明对齐到**当前版本默认预设参照**——内置 id 走 `planAlignForPreset`，自定义 id 走新增 `planAlignForCustomPreset`（删「曾是内置标准成员、当前版本已彻底不活」的漂移行；任何基线都没出现过的用户自定义行绝不删；不报 missing）；② 遗留目录**归档**（rename 整体移动到 `<home>/preset-doctor-archive/<ts>/<id>/`，不在扫描面内，绝不删除）。
+- **安全契约**：UI 双确认（两道确认框，写明将执行的步骤）+ 服务端 `confirm:true` 硬门（桥 `/resolve-legacy` 新路由）；写盘走既有 `writeFileSafe`（.bak 备份 + 原子写 + 幂等）；dryRun 全程 0 写盘；归档同名冲突加序号后缀；对齐失败时不归档并如实报 partial/error。
+- **入口打通**：`collectPresets` 对 R-LEGACY-CONFLICT 卡开放 `syncable`；client 卡面修复项标签新增「可授权」档；`apply()` 返回面与桥 context 同步暴露 `runResolveLegacy`。
+- 测试 134 例（+7：confirm 硬门/全链收尾/内置 id 收尾/dryRun/归档后缀/桥路由/冲突卡 syncable）；lint 0；`node --check lib/client.js` 通过。
+
 ## 0.7.1 (2026-10-18)
 
 - hosts: 追加 0.2.1-rc.2 声明面枚举（34/34 @deepseek-ai/* 宿主 peer 逐包 npm 实测 rc.2 在版；本插件不触 ctx.web provider 与 conversation.input.model.label 槽，代码零改动，纯元数据发版；农场 rc.2 格挂账待命）

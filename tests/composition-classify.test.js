@@ -24,6 +24,8 @@ test('classifyComposition：shipped / drift(introduced) / custom 三态 + missin
   assert.equal(byId['time-context'].state, 'drift')
   assert.equal(byId['time-context'].driftKind, 'introduced')
   assert.equal(byId['my-custom-tool'].state, 'custom')
+  assert.equal(byId['my-custom-tool'].noBaseline, true, '任何内置预设都未出现过→无基准项')
+  assert.equal(byId['persona'].noBaseline, false)
   assert.ok(c.missing.includes('tool-subagent-codex'))
   assert.ok(!c.missing.includes('persona'))
 })
@@ -68,4 +70,26 @@ test('classifyComposition：自定义 id 预设的默认参照回退 standard', 
   const c = classifyComposition(src, presetRow, { baseline: B, allBaselines: ALL, currentVersion: '0.2.1-rc.1' })
   assert.equal(c.rows[0].defaultOn, true)
   assert.equal(c.rows[0].triState, 'follow')
+})
+
+test('classifyComposition：noBaseline 跨预设/跨快照判定（基准项存在≠参照集包含）', () => {
+  // persistent-shell 只活在 minimal（非参照 standard）：基准项存在→仍标「基准·停用」；
+  // custom-bash 任何预设任何版本都没有：才是真「无基准」（2026-10-19 用户定案）。
+  const SNAP = [{
+    version: '0.2.1-rc.1',
+    presets: {
+      standard: ['preset-standard', 'persona'],
+      minimal: ['preset-minimal', 'persistent-shell'],
+    },
+  }]
+  const presetRow = { presetId: 'win-gitbash', id: 'preset-win-gitbash', range: [0, 1000], line: 1 }
+  const mk = (id, l) => ({ id, range: [l * 10, l * 10 + 5], line: l + 1, node: { get: () => undefined } })
+  const rows = [mk('persistent-shell', 2), mk('custom-bash', 3)]
+  const src = { file: 'x', presetRows: [presetRow], rows: [presetRow, ...rows] }
+  const c = classifyComposition(src, presetRow, { baseline: SNAP[0], allBaselines: SNAP, currentVersion: '0.2.1-rc.1' })
+  const byId = Object.fromEntries(c.rows.map((r) => [r.id, r]))
+  assert.equal(byId['persistent-shell'].noBaseline, false, 'minimal 基准里有它→基准项存在')
+  assert.equal(byId['persistent-shell'].defaultOn, false, '但参照 standard 无→默认停用')
+  assert.equal(byId['custom-bash'].noBaseline, true, '从未进过任何内置预设→无基准项')
+  assert.equal(byId['custom-bash'].defaultOn, false)
 })

@@ -1,5 +1,7 @@
 # Changelog
 
+0.7.4: host enumeration addendum for DSH 0.2.1-rc.3 (declaration-only bump; contract plane zero diff).
+
 ## 0.7.3 (2026-10-19)
 
 行开关基准语义定案（2026-10-19 用户裁决）：基准项逻辑上不存在→默认按关闭解析，UI 诚实区分「无基准」与「基准存在但停用」，并保留兜底失效手段。

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.5 (2026-10-24)
+
+版本探测抗残留修复（bug1）+ 对齐功能同根连带恢复（bug2）+ R-DEAD-VAR 死变量规则（`{{cwd}}` 残留）。
+
+- **bug1 修复（host-version.js 重写）**：旧逻辑单包解析链会撞上 profile 上层目录的安装残留（如 `<home>/profiles/node_modules/@deepseek-ai/dsh` 停着 0.1.2-alpha.1 旧副本）导致版本误判；现改为**三通道全副本收集（Node 解析链 + 各候选根 + Electron `process.resourcesPath` 下的 app.asar 宿主包）取最高 semver**——desktop 形态真宿主跑在 Electron 运行时里（安装位置可多处且随升级漂移，resourcesPath 是运行时自报、天然指向当前在跑的那套），残留副本只会比运行宿主旧，max 启发式对垃圾鲁棒；返回附 `via/path/copies`，卡片版本行展示判定依据。
+- **bug2（同根连带）**：版本误判→选中 0.1.2 时代分支→无基线快照→「对齐到当前版本标准」（R-COMPOSITION/行开关/同步）整体失效；版本修对后自动落回 `dsh-0.2.1` 分支。另补 `0.2.1-rc.3` 基线快照（宿主 tag 实证预设域相对 rc.2 零 diff，克隆 rc.2）。
+- **新增 R-DEAD-VAR（rules/dead-var.js）**：宿主已移除的 prompt 变量残留检查+机械修复。首条死表条目 `{{cwd}}`（0.2.1-alpha.2 起 system-prompt 不再注册，模板残留抛 `unknown prompt variable "cwd"` 拒载整条预设）：表驱动（changes.json `prompt-var-removed`）+ 版本门控（旧宿主仍合法不报）；修复走既有 auto→applyFixes 流水线：cwd 提示整行删行、裸占位删 token 收敛空白，span 外字节不动，`.bak` 备份照旧。
+- planner 抽出 `rewriteRowSpan`/`makeSetScalar` 共用（R-KEY-RENAMED 行为不变）；mergeChanges 对 prompt-var-removed 按 `variable` 去重；测试 +13（host-version 6 + dead-var 7），148 例全绿。
+
 0.7.4: host enumeration addendum for DSH 0.2.1-rc.3 (declaration-only bump; contract plane zero diff).
 
 ## 0.7.3 (2026-10-19)

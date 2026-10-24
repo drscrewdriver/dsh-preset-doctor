@@ -235,6 +235,7 @@ export function summarize(scanResult, fixResult) {
         }
       : undefined,
     detectedVersion: scanResult.detectedVersion,
+    detectedVersionVia: scanResult.detectedVia,
     total: findings.length,
     byLevel,
     byRule,

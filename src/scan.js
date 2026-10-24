@@ -14,6 +14,7 @@ import { YAMLMap, YAMLSeq } from 'yaml'
 import { isPresetRow, checkStruct, isLegalTopEntry } from './rules/struct.js'
 import { checkPackage } from './rules/pkg.js'
 import { checkConfigKeys } from './rules/persona.js'
+import { checkDeadVars } from './rules/dead-var.js'
 import { checkLegacyDirs } from './rules/legacy.js'
 import { checkDupIds } from './rules/dup-id.js'
 import { checkShadowedIds } from './rules/shadow.js'
@@ -285,7 +286,8 @@ export function parseDirComposition(legacy) {
 export function scanAll({ home, scanProfiles = true, migrateLegacy = true, resolvePkg, dshVersion, branch } = {}) {
   const branches = loadBranches()
   const pinned = typeof branch === 'string' ? branchById(branch, branches) : branch
-  const detected = dshVersion ?? detectDshVersion()?.version
+  const det = dshVersion ? { version: dshVersion, via: 'pinned' } : detectDshVersion()
+  const detected = det?.version
   // 显式钉定 > 宿主版本匹配 > 回退 main（检测失败时与 0.3.x 行为一致）
   const active = pinned ?? branchForVersion(detected, branches) ?? branchById('main', branches)
   const stages = active?.stages ?? { scanPatches: true, migrateLegacy: true, fixLegacyInPlace: false }
@@ -320,6 +322,7 @@ export function scanAll({ home, scanProfiles = true, migrateLegacy = true, resol
         }),
       )
       findings.push(...checkConfigKeys(row, tables))
+      findings.push(...checkDeadVars(row, { tables, currentVersion: detected }))
     }
   }
   findings.push(...checkDupIds(sources))
@@ -348,5 +351,5 @@ export function scanAll({ home, scanProfiles = true, migrateLegacy = true, resol
       }
     }
   }
-  return { home, sources, findings, tables, warnings, branch: active, detectedVersion: dshVersion ?? detected }
+  return { home, sources, findings, tables, warnings, branch: active, detectedVersion: dshVersion ?? detected, detectedVia: det?.via, detectedPath: det?.path }
 }

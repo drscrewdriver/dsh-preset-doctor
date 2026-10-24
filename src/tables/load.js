@@ -44,7 +44,12 @@ export function readUserChanges(home, warn = () => {}) {
 
 /** 合并：用户条目在前（同名 from 覆盖内置）。 */
 export function mergeChanges(builtinChanges, userChanges) {
-  const keyOf = (c) => (c.kind === 'config-key-rename' ? `${c.kind}:${c.package}:${(c.from ?? []).join(',')}` : `${c.kind}:${c.from}`)
+  const keyOf = (c) =>
+    c.kind === 'config-key-rename'
+      ? `${c.kind}:${c.package}:${(c.from ?? []).join(',')}`
+      : c.kind === 'prompt-var-removed'
+        ? `${c.kind}:${c.variable}`
+        : `${c.kind}:${c.from}`
   const userKeys = new Set((userChanges ?? []).map(keyOf))
   return [...(userChanges ?? []), ...builtinChanges.filter((c) => !userKeys.has(keyOf(c)))].filter(
     (c, i, all) => all.findIndex((x) => keyOf(x) === keyOf(c)) === i,
@@ -147,6 +152,7 @@ export function loadTables({ home, warn, eventsUpTo } = {}) {
     tables: {
       packageRenames: resolveRenameChain(changes, w),
       configKeyRenames: changes.filter((c) => c.kind === 'config-key-rename'),
+      deadPromptVars: changes.filter((c) => c.kind === 'prompt-var-removed'),
       changes,
     },
     warnings,

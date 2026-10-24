@@ -18,6 +18,13 @@
       "to": ["prefix", "suffix"],
       "valueRule": "persona.text.splitCwdSuffix",
       "source": "commit 40792330c0 (keep model persona prefix and place cwd in suffix)"
+    },
+    {
+      "kind": "prompt-var-removed",
+      "brokenIn": "0.2.1-alpha.2",
+      "variable": "cwd",
+      "replacement": "ctx.workingDirectory",
+      "source": "宿主 tag dsh-v0.2.1-alpha.2：system-prompt 不再注册 {{cwd}}（工作目录改由能力面提供），模板残留抛 unknown prompt variable 并拒载整条预设"
     }
   ]
 }

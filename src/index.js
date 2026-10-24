@@ -122,6 +122,7 @@ export function apply(ctx, config = {}) {
     }
     return {
       version: summary.detectedVersion,
+      versionVia: summary.detectedVersionVia,
       branch: summary.branch,
       eras: eraCatalogFor(summary.branch),
       presets: summary.presets,

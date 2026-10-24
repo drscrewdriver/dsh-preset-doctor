@@ -11,6 +11,7 @@ import { pathToFileURL } from 'node:url'
 import { Scalar } from 'yaml'
 import { spliceEdits } from './core.js'
 import { splitPersonaText } from '../rules/persona.js'
+import { stripDeadVars } from '../rules/dead-var.js'
 import { colOf, stringifyNode } from '../yaml-doc.js'
 
 function escapeRe(s) {
@@ -74,11 +75,7 @@ function planKeyRename(finding, src) {
 
   const configNode = row.configNode
   configNode.delete(fromKey)
-  const setScalar = (key, value) => {
-    const s = new Scalar(value)
-    if (typeof value === 'string' && value.includes('\n')) s.type = 'BLOCK_LITERAL'
-    configNode.set(key, s)
-  }
+  const setScalar = makeSetScalar(configNode)
 
   if (valueRule === 'persona.text.splitCwdSuffix' && to.includes('prefix') && to.includes('suffix')) {
     const parts = splitPersonaText(oldValue)
@@ -90,17 +87,48 @@ function planKeyRename(finding, src) {
     throw new Error(`配置键改名 ${fromKey}→${to.join('+')} 无确定性拆分规则（valueRule=${valueRule ?? '无'}），请人工处理`)
   }
 
-  // 序列化整个行（映射）后替换行 span。注意两点：
-  // 1. yaml v2 的行节点 range 从第一个 key 开始（`- ` 在 span 之外）：
-  //    首行 = body 首行（无前缀），后续行 = key 列缩进。
-  // 2. range end 可能吞掉行尾换行：原 span 的尾部换行必须补回，
-  //    否则与下一行拼接（多行测试用例才能暴露）。
+  return rewriteRowSpan(row, src, finding.rule)
+}
+
+/** 向 config 节点写标量：多行字符串用块标量，与 planKeyRename 历史行为一致。 */
+function makeSetScalar(configNode) {
+  return (key, value) => {
+    const s = new Scalar(value)
+    if (typeof value === 'string' && value.includes('\n')) s.type = 'BLOCK_LITERAL'
+    configNode.set(key, s)
+  }
+}
+
+/**
+ * R-DEAD-VAR：删除宿主已移除的 prompt 变量占位（cwd 提示整行删行，
+ * 裸占位删 token），改写对应 config 键后整行重排。
+ */
+function planDeadVar(finding, src) {
+  const { rowRange, key, vars } = finding.data
+  const [start, end] = rowRange
+  const row = src.rows.find((r) => r.range && r.range[0] === start && r.range[1] === end)
+  if (!row?.configNode) throw new Error('未找到目标行节点（文件可能已被外部修改），请重跑扫描')
+  const oldValue = row.configNode.get(key)
+  if (typeof oldValue !== 'string') throw new Error(`config.${key} 不是字符串或已不存在（可能已修复）`)
+  const next = stripDeadVars(oldValue, vars)
+  if (next === oldValue) throw new Error(`config.${key} 内未找到占位（可能已修复），请重跑扫描`)
+  makeSetScalar(row.configNode)(key, next)
+  return rewriteRowSpan(row, src, finding.rule)
+}
+
+/** 把改后的行节点序列化回行 span（保留 span 外字节 100% 不动）。注意两点：
+ * 1. yaml v2 的行节点 range 从第一个 key 开始（`- ` 在 span 之外）：
+ *    首行 = body 首行（无前缀），后续行 = key 列缩进。
+ * 2. range end 可能吞掉行尾换行：原 span 的尾部换行必须补回，
+ *    否则与下一行拼接（多行测试用例才能暴露）。 */
+function rewriteRowSpan(row, src, rule) {
+  const [start, end] = row.range
   const original = src.text.slice(start, end)
   const trailing = /(?:\r?\n)+$/.exec(original)?.[0] ?? ''
   const body = stringifyNode(row.node).replace(/\n+$/, '')
   const pad = ' '.repeat(colOf(src.lineCounter, start) - 1)
   const lines = body.split('\n').map((l, i) => (i === 0 || l === '' ? l : `${pad}${l}`))
-  return [{ start, end, text: lines.join('\n') + trailing, rule: finding.rule }]
+  return [{ start, end, text: lines.join('\n') + trailing, rule }]
 }
 
 /**
@@ -114,6 +142,8 @@ export function planEdit(finding, src) {
       return planLocalPath(finding, src)
     case 'R-KEY-RENAMED':
       return planKeyRename(finding, src)
+    case 'R-DEAD-VAR':
+      return planDeadVar(finding, src)
     default:
       throw new Error(`规则 ${finding.rule} 不支持自动修复`)
   }

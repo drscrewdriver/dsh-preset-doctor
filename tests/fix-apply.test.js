@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { scanAll } from '../src/scan.js'
 import { applyFixes } from '../src/fix/index.js'
 import { loadPatch, parsePatchDoc } from '../src/yaml-doc.js'
@@ -170,7 +170,9 @@ test('E2E：本地路径改写为绝对 file:// URL（原文件不动）', (t) =
   const scan = scanAll({ home, branch: 'main', resolvePkg: okResolve, migrateLegacy: false })
   applyFixes(scan, { ts: '20260930T000000' })
   const after = fs.readFileSync(file, 'utf8')
-  const expectedUrl = `file:///${custom.split(path.sep).join('/')}`
+  // 与修复端同一工具函数构造预期 URL，避免 Linux 上 `file:///` + `/tmp/...` 的额外斜杠
+  // （旧写法在 Windows 下成立是因为 path.sep='\'，Linux 下变 '/'，join 后多一斜杠 ⇒ 假阴）。
+  const expectedUrl = pathToFileURL(custom).href
   assert.ok(after.includes(`name: ${expectedUrl}`), after)
   assert.ok(!after.includes('name: ./custom-bash.mjs'))
   // 原 .mjs 未移动

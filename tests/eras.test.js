@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url'
 import { scanAll } from '../src/scan.js'
 import { applyFixes } from '../src/fix/index.js'
 import { loadPatch } from '../src/yaml-doc.js'
+import { makeShippedWebAppResolve } from './_stub-resolve.js'
 
 const ERAS = fileURLToPath(new URL('./fixtures/eras/', import.meta.url))
 
@@ -112,11 +113,16 @@ test('0.1.5 时代真实官方预设：prefix 主流 + 1 个 text 滞后样本�
 
 /** 现行格式的负对照：官方 patch 逐个扫描 → 0 auto findings（shadow 自指命中属预期）。 */
 function assertCurrentEraClean(t, eraDir, label) {
+  // 内置预设包 @deepseek-ai/dsh-web-app 由 Electron 运行时注入，npm/CI 上 install 不会
+  // 落盘；shadow 规则因此拿不到 shipped ids 会直接 fail-soft 回空表，Linux CI 上
+  // “自指命中”的断言假阴。桩把 fixture 目录当 shipped 包的 presets/，跨 OS 行为一致。
+  const resolvePkg = makeShippedWebAppResolve(eraDir)
+  t.after(() => resolvePkg.cleanup())
   for (const f of fs.readdirSync(eraDir).sort()) {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), `dshpm-era-${label}-`))
     t.after(() => fs.rmSync(home, { recursive: true, force: true }))
     fs.copyFileSync(path.join(eraDir, f), path.join(home, 'cordis.patch.yml'))
-    const { findings } = scanAll({ home, scanProfiles: false, migrateLegacy: false, branch: 'main' })
+    const { findings } = scanAll({ home, scanProfiles: false, migrateLegacy: false, branch: 'main', resolvePkg })
     const auto = findings.filter((x) => x.level === 'auto')
     assert.deepEqual(auto.map((x) => x.rule), [], `${label}/${f} 应无机械可修问题`)
     assert.ok(findings.some((x) => x.rule === 'R-ID-SHADOWED'), `${label}/${f} 就是内置预设本体，shadow 自指命中才对`)

@@ -70,6 +70,16 @@ export function apply(ctx, config = {}) {
   // 传入的 volatile config（宿主改设置后引用原位更新）——所以 current 必须
   // 可变、每次扫描/修复前重新解引。
   let current = () => readConfig(config)
+  // 测试钩子：宿主不传，但测试可注入一个 resolvePkg 桩，将 @deepseek-ai/* 解析
+  // 确定性化（避免依赖本地 ancestor node_modules / Electron 注入）。readConfig
+  // 会丢弃非白名单键，因此这里从 closure 直接取。无注入时 scanAll 会默认落到真实 resolvePkg。
+  const resolvePkgOverride = typeof config.resolvePkg === 'function' ? config.resolvePkg : undefined
+  const scanOpts = (cfg) => ({
+    home: resolveDshHome(cfg.homeOverride),
+    scanProfiles: cfg.scanProfiles,
+    migrateLegacy: cfg.migrateLegacy,
+    ...(resolvePkgOverride ? { resolvePkg: resolvePkgOverride } : {}),
+  })
 
   const log = (msg) => {
     try {
@@ -85,13 +95,9 @@ export function apply(ctx, config = {}) {
    *  /preset-doctor 显式命令进入——命令本身即手动确认；启动恒 'scan'。 */
   function runScanFix({ mode = 'fix' } = {}) {
     const cfg = current()
-    const home = resolveDshHome(cfg.homeOverride)
-    const scan = scanAll({
-      home,
-      scanProfiles: cfg.scanProfiles,
-      migrateLegacy: cfg.migrateLegacy,
-    })
-    lastScan = { home, scan }
+    const opts = scanOpts(cfg)
+    const scan = scanAll(opts)
+    lastScan = { home: opts.home, scan }
     const doFix = mode === 'fix'
     const fixResult = doFix ? applyFixes(scan, { dryRun: false, ts: defaultTimestamp() }) : undefined
     const summary = summarize(scan, fixResult)
@@ -140,12 +146,7 @@ export function apply(ctx, config = {}) {
       return { ok: false, code: 'confirm-required', message: '缺少确认（confirm:true）；写盘前必须在卡内确认框中明确同意' }
     }
     const cfg = current()
-    const home = resolveDshHome(cfg.homeOverride)
-    const scan = scanAll({
-      home,
-      scanProfiles: cfg.scanProfiles,
-      migrateLegacy: cfg.migrateLegacy,
-    })
+    const scan = scanAll(scanOpts(cfg))
     const target = collectPresets(scan).find((p) => p.key === key)
     if (!target) return { ok: false, code: 'preset-not-found', message: `预设不在本次扫描结果中（可能已删除）：${key}` }
     const autoFindings = target.broken.filter((f) => f.level === 'auto')
@@ -171,24 +172,21 @@ export function apply(ctx, config = {}) {
   /** composition 对齐（桥 align 路由）：重扫取最新源 → 行级删漂移行（confirm 已在桥门）。 */
   function runAlignAction({ file, presetId, dryRun } = {}) {
     const cfg = current()
-    const home = resolveDshHome(cfg.homeOverride)
-    const scan = scanAll({ home, scanProfiles: cfg.scanProfiles, migrateLegacy: cfg.migrateLegacy })
+    const scan = scanAll(scanOpts(cfg))
     return alignPreset(scan, { file, presetId, dryRun: dryRun === true, ts: defaultTimestamp() })
   }
 
   /** 行级三档 toggle（桥 toggle 路由）：重扫 → 置行 跟随/开启/关闭（confirm 双门）。 */
   function runToggleAction({ file, presetId, rowId, mode, disabled, confirm, dryRun } = {}) {
     const cfg = current()
-    const home = resolveDshHome(cfg.homeOverride)
-    const scan = scanAll({ home, scanProfiles: cfg.scanProfiles, migrateLegacy: cfg.migrateLegacy })
+    const scan = scanAll(scanOpts(cfg))
     return toggleRow(scan, { file, presetId, rowId, mode, disabled, confirm: confirm === true, dryRun: dryRun === true, ts: defaultTimestamp() })
   }
 
   /** 遗留目录冲突的授权转写收尾（桥 resolve-legacy 路由）：重扫 → 对齐声明到当前版本默认预设参照 + 归档目录（confirm 硬门 + .bak 备份）。 */
   function runResolveLegacyAction({ key, confirm, dryRun } = {}) {
     const cfg = current()
-    const home = resolveDshHome(cfg.homeOverride)
-    const scan = scanAll({ home, scanProfiles: cfg.scanProfiles, migrateLegacy: cfg.migrateLegacy })
+    const scan = scanAll(scanOpts(cfg))
     return runResolveLegacy(scan, { key, confirm: confirm === true, dryRun: dryRun === true, ts: defaultTimestamp() })
   }
 

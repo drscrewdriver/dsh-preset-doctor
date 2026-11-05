@@ -5,6 +5,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { apply, DEFAULT_SETTINGS, Config } from '../src/index.js'
 import { normalizeFindings, summarize, renderText, renderJson } from '../src/report.js'
+import { makeDshResolve } from './_stub-resolve.js'
+
+// 内置包由 Electron 运行时注入 ⇒ CI 上 npm 不拉，realResolve 将新包旧包都判 ok=false
+// → R-PKG-RENAMED 不命中→ 扫描报告无“workflow-ptc”。桩把解析锁到确定性（旧名死 / 新名活），
+// Linux CI 与 Windows dev 同形。
+const okResolve = makeDshResolve()
 
 function tmpHome(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dshpm-plug-'))
@@ -87,7 +93,7 @@ test('runScanFix scan 模式（经 /preset-doctor 命令 handler）', async (t) 
   const { ctx, effects } = mockCtx()
   let registered
   ctx.commands = { register: (def) => (registered = def) }
-  apply(ctx, { ...DEFAULT_SETTINGS, homeOverride: home, scanProfiles: false, migrateLegacy: false })
+  apply(ctx, { ...DEFAULT_SETTINGS, homeOverride: home, scanProfiles: false, migrateLegacy: false, resolvePkg: okResolve })
   for (const e of effects) e.fn()
   assert.ok(registered, '命令应已注册')
   assert.equal(registered.name, 'preset-doctor')
@@ -110,7 +116,7 @@ test('autoFix=true 时 /preset-doctor fix 手动写盘修复（手动确认路�
   const { ctx, effects } = mockCtx()
   let registered
   ctx.commands = { register: (def) => (registered = def) }
-  apply(ctx, { ...DEFAULT_SETTINGS, autoFix: true, homeOverride: home, scanProfiles: false, migrateLegacy: false })
+  apply(ctx, { ...DEFAULT_SETTINGS, autoFix: true, homeOverride: home, scanProfiles: false, migrateLegacy: false, resolvePkg: okResolve })
   for (const e of effects) e.fn()
   const fixResult = registered.handler({ rawInput: 'fix' })
   assert.equal(fixResult.kind, 'text')

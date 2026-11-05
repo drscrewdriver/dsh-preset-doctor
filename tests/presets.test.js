@@ -11,6 +11,11 @@ import { scanAll } from '../src/scan.js'
 import { collectPresets, summarize, eraCatalogFor } from '../src/report.js'
 import { makeSettingsBridge } from '../src/bridge.js'
 import { resolveConfig } from '../src/index.js'
+import { makeDshResolve } from './_stub-resolve.js'
+
+// 内置包由 Electron 注入，Linux CI 上 npm/ancestor 都无 ⇒ R-PKG-RENAMED/MISSING 假报。
+// 桩将 @deepseek-ai/* 解为确定性（worker-thread 死 / 其余活），跨 OS 一致。
+const okResolve = makeDshResolve()
 
 function tmpHome(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dshpm-presets-'))
@@ -41,7 +46,7 @@ const DECLARED = [
 test('collectPresets：声明行成卡、name/description 提取、健康预设 current', (t) => {
   const home = tmpHome(t)
   fs.writeFileSync(path.join(home, 'cordis.patch.yml'), DECLARED)
-  const scan = scanAll({ home, scanProfiles: false, migrateLegacy: false })
+  const scan = scanAll({ home, scanProfiles: false, migrateLegacy: false, resolvePkg: okResolve })
   const presets = collectPresets(scan)
   const alpha = presets.find((p) => p.id === 'alpha')
   const beta = presets.find((p) => p.id === 'beta')
@@ -62,7 +67,7 @@ test('collectPresets：遗留目录（声明式分支）经 R-LEGACY 成卡且 s
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, 'agent.cordis.yml'), '[]')
   fs.writeFileSync(path.join(dir, 'preset.yml'), 'name: 伽马\ndescription: 目录预设')
-  const scan = scanAll({ home, scanProfiles: false, migrateLegacy: false })
+  const scan = scanAll({ home, scanProfiles: false, migrateLegacy: false, resolvePkg: okResolve })
   const presets = collectPresets(scan)
   const gamma = presets.find((p) => p.id === 'gamma')
   assert.ok(gamma, '遗留目录应成卡')
@@ -181,7 +186,7 @@ test('index.runSync 全链：确认闸 + 只动目标预设 + .bak 写盘', asyn
     effect: (fn) => fn(),
     logger: () => ({ info() {} }),
   }
-  const api = apply(ctx, { scanProfiles: false, migrateLegacy: false, homeOverride: home })
+  const api = apply(ctx, { scanProfiles: false, migrateLegacy: false, homeOverride: home, resolvePkg: okResolve })
   assert.equal(typeof api.runSync, 'function', 'apply 应返回 { getSummary, runSync }')
 
   // 确认闸：无 confirm 拒绝且零写盘
@@ -191,7 +196,7 @@ test('index.runSync 全链：确认闸 + 只动目标预设 + .bak 写盘', asyn
 
   const { scanAll: scan } = await import('../src/scan.js')
   const { collectPresets: collect } = await import('../src/report.js')
-  const scanResult = scan({ home, scanProfiles: false, migrateLegacy: false })
+  const scanResult = scan({ home, scanProfiles: false, migrateLegacy: false, resolvePkg: okResolve })
   const presets = collect(scanResult)
   const delta = presets.find((p) => p.id === 'delta')
   const alpha = presets.find((p) => p.id === 'alpha')

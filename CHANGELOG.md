@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.2 (2026-11-06)
+宿主不提供行识别机制：可解析性并入行分类/对齐/跟随三条链路。
+
+- **背景（桌面宿主实证）**：新建会话报 `agent-preset/invalid: tool-subagent-list-agents (@deepseek-ai/dsh-tool-subagent-control/list-agents): never started`——包在当前安装不存在，但卡面仍标「基准·启用」（基线表只存官方组合声明，看不见 bundle 层 `disabled` 与包缺失），且「对齐」不会删它、报 missing 想把它补回来。
+- **`classifyComposition` 新增行级 `pkgMissing`**（rules/composition-drift.js）：复用 R-PKG-MISSING 同源判据（`resolvePkg(pkgPart(name))`）；绝对 `file://` 行改按磁盘存在性判定；`cordis:` 虚拟行/目录时代相对路径不判。基线成员但不可解析→`defaultOn=false`（不再「基准·启用」），triState 诚实派生（盘面未关→'off'，已显式关→'follow'）。未注入 resolver 保守旧行为。
+- **对齐（fix/composition-align.js）**：`planAlignForPreset` 新增删除「基线有但包不可解析」行（计入 `removedHostMissing`，不再同时报 missing）；`planAlignForCustomPreset` 对当前活行加同一可解析性门。`runAlign`/`runToggle`（follow 档）经 src/index.js 透传 resolver（测试注入优先，否则真实解析链）。
+- **UI（lib/client.js）**：不可解析行加「宿主不提供」徽章；基准徽章 tooltip 注明按停用解析；对齐按钮涵盖宿主不提供行计数；follow tooltip 同步。
+- 测试 +7（tests/composition-host-missing.test.js：分类翻转/旧行为回退/虚拟行豁免与 file 存在性/规划层删除/写盘对齐幂等/无 resolver 保守/follow 写 disabled）；160 例全绿，lint 干净。
+
 ## 0.7.5 (2026-10-24)
 
 版本探测抗残留修复（bug1）+ 对齐功能同根连带恢复（bug2）+ R-DEAD-VAR 死变量规则（`{{cwd}}` 残留）。

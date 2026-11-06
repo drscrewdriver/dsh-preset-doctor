@@ -12,6 +12,7 @@
 import { planFileEdits } from './planner.js'
 import { migrateLegacyDirs } from './migrate-legacy.js'
 import { planAlignForPreset } from './composition-align.js'
+import { rowPkgMissing } from '../rules/composition-drift.js'
 import { runResolveLegacy } from './resolve-legacy.js'
 import { makeDisabledEdit, makeEnableEdit, deleteItemEdit } from './row-edit.js'
 import { writeFileSafe, defaultTimestamp, displayPath, spliceEdits } from './core.js'
@@ -66,13 +67,14 @@ export function applyFixes({ home, sources, findings, tables }, { dryRun = false
 
 /**
  * composition 对齐（显式确认动作，非 auto-scan）：把某个覆盖内置预设的行集对齐到
- * **当前运行版本的标准模式预设**（baselineForVersion(detectedVersion)）——行级删除漂移行。
+ * **当前运行版本的标准模式预设**（baselineForVersion(detectedVersion)）——行级删除漂移行，
+ * 以及基线有但包不可解析的「宿主不提供行」（opts.resolvePkg 注入时启用，2026-11-06）。
  * 缺失标准行仅回传供人工补齐（自动补齐需基线存 id→包名，后续）。
  * @param {{home,sources,findings,detectedVersion}} scanResult
- * @param {{file:string, presetId:string, dryRun?:boolean, ts?:string}} opts
+ * @param {{file:string, presetId:string, dryRun?:boolean, ts?:string, resolvePkg?:Function}} opts
  */
-export function runAlign(scanResult, { file, presetId, dryRun = false, ts = defaultTimestamp() } = {}) {
-  const out = { dryRun, ts, file: file ? displayPath(file) : undefined, removed: [], missing: [], status: 'noop', backup: undefined, errors: [] }
+export function runAlign(scanResult, { file, presetId, dryRun = false, ts = defaultTimestamp(), resolvePkg } = {}) {
+  const out = { dryRun, ts, file: file ? displayPath(file) : undefined, removed: [], removedHostMissing: [], missing: [], status: 'noop', backup: undefined, errors: [] }
   const version = scanResult?.detectedVersion
   const baseline = baselineForVersion(version)
   if (!file || !presetId || !baseline) {
@@ -85,8 +87,9 @@ export function runAlign(scanResult, { file, presetId, dryRun = false, ts = defa
     out.errors.push({ message: `未找到预设声明 ${presetId} @ ${file}` })
     return out
   }
-  const plan = planAlignForPreset(src, presetRow, { baseline, allBaselines: loadBaseline() })
+  const plan = planAlignForPreset(src, presetRow, { baseline, allBaselines: loadBaseline(), ...(resolvePkg ? { resolvePkg } : {}) })
   out.removed = plan.removed
+  out.removedHostMissing = plan.removedHostMissing
   out.missing = plan.missing
   if (plan.edits.length === 0) return out // 无漂移行可删 → noop（仍回报 missing）
   try {
@@ -104,7 +107,9 @@ export function runAlign(scanResult, { file, presetId, dryRun = false, ts = defa
  * 行级三档 toggle（显式确认）：对某预设内一行置为 跟随/开启/关闭。
  *  - mode 'on'  → 去 `disabled`（启用）
  *  - mode 'off' → 置 `disabled: true`（禁用）
- *  - mode 'follow' → 按「当前版本参照预设」默认解析：在默认集→启用，否则→禁用
+ *  - mode 'follow' → 按「当前版本参照预设」默认解析：在默认集→启用，否则→禁用；
+ *    默认集命中但引用包不可解析（宿主不提供）→ 同样按禁用解析（2026-11-06，
+ *    与 classifyComposition 的 defaultOn 派生同源；未注入 resolvePkg 时旧行为）。
  *    （参照预设：presetId 命中内置→自身；自定义 id→回退 standard）。
  *    用户定案（2026-10-19）：基准项逻辑上不存在（任何内置预设都无此行为）同样
  *    按关闭解析；若用户确需保留这类自有工具行，用 'on' 强制开启，兜底另有
@@ -112,7 +117,7 @@ export function runAlign(scanResult, { file, presetId, dryRun = false, ts = defa
  * 行不存在于该预设（如它只在内置 shipped standard、用户无覆盖预设）→ row-not-in-preset。
  * 向后兼容：未传 mode 而传 `disabled`（旧布尔）时按 off/on 映射。
  */
-export function runToggle(scanResult, { file, presetId, rowId, mode, disabled, confirm = false, dryRun = false, ts = defaultTimestamp() } = {}) {
+export function runToggle(scanResult, { file, presetId, rowId, mode, disabled, confirm = false, dryRun = false, ts = defaultTimestamp(), resolvePkg } = {}) {
   const out = { dryRun, ts, file: file ? displayPath(file) : undefined, presetId, rowId, mode, status: 'noop', backup: undefined, errors: [] }
   if (confirm !== true) {
     out.status = 'rejected'
@@ -149,7 +154,7 @@ export function runToggle(scanResult, { file, presetId, rowId, mode, disabled, c
       return out
     }
     const refPid = baseline.presets?.[presetId] ? presetId : 'standard'
-    const defaultOn = new Set(baseline.presets?.[refPid] || []).has(rowId)
+    const defaultOn = new Set(baseline.presets?.[refPid] || []).has(rowId) && !rowPkgMissing(row, resolvePkg)
     targetDisabled = !defaultOn
     out.defaultOn = defaultOn
   } else {

@@ -6,12 +6,16 @@
  *
  * 处置：
  *  - 删除「漂移行」：用户有、当前基线无、但曾/将于其它版本基线出现的标准成员行（introduced/removed）。
+ *  - 删除「宿主不提供行」（2026-11-06）：当前基线有、但引用包不可解析的行——
+ *    留着它整条预设 never started（宿主实证），基线声明≠当前安装跑得起来；
+ *    未注入 resolver 时不启用该档（保守旧行为）。
  *  - 保留「用户自定义行」：任何版本基线都没有的 id（无从判定，绝不删）。
  *  - 「缺失标准行」：当前基线有、用户无 —— 仅**报告**（自动补齐需基线存 id→包名映射，列为后续）。
  *
  * 行级删除经 row-edit.deleteItemEdit，区间外字节（注释/!!js/缩进）不动；嵌套去重防重叠。
  */
 import { deleteItemEdit } from './row-edit.js'
+import { rowPkgMissing } from '../rules/composition-drift.js'
 
 /** row 是否落在 preset 行范围内（含自身排除由调用方处理）。 */
 function within(row, preset) {
@@ -29,12 +33,12 @@ function dedupNested(edits) {
  * 计算某覆盖预设的对齐编辑与统计。
  * @param {{text:string,presetRows:Array,rows:Array}} src
  * @param {{presetId:string,range:[number,number]}} presetRow
- * @param {{baseline:{version:string,presets:Record<string,string[]>}, allBaselines:Array}} ctx
- * @returns {{edits:Array, removed:string[], missing:string[], baselineVersion:string}}
+ * @param {{baseline:{version:string,presets:Record<string,string[]>}, allBaselines:Array, resolvePkg?:Function}} ctx
+ * @returns {{edits:Array, removed:string[], removedHostMissing:string[], missing:string[], baselineVersion:string}}
  */
-export function planAlignForPreset(src, presetRow, { baseline, allBaselines } = {}) {
+export function planAlignForPreset(src, presetRow, { baseline, allBaselines, resolvePkg } = {}) {
   const pid = presetRow.presetId
-  const empty = { edits: [], removed: [], missing: [], baselineVersion: baseline?.version ?? '' }
+  const empty = { edits: [], removed: [], removedHostMissing: [], missing: [], baselineVersion: baseline?.version ?? '' }
   if (!pid || !baseline || !Array.isArray(allBaselines)) return empty
   const baseRows = new Set(baseline.presets?.[pid] || [])
   if (baseRows.size === 0) return empty // 该预设无基线（非内置）→ 不动
@@ -45,17 +49,27 @@ export function planAlignForPreset(src, presetRow, { baseline, allBaselines } = 
 
   const rawEdits = []
   const removed = []
+  const removedHostMissing = []
   for (const row of userRows) {
-    if (baseRows.has(row.id)) continue // 当前基线有 → 保留
-    if (!union.has(row.id)) continue // 任何基线都没有 → 用户自定义，保留
-    rawEdits.push(deleteItemEdit(src.text, row))
-    removed.push(row.id)
+    if (!baseRows.has(row.id) && !union.has(row.id)) continue // 任何基线都没有 → 用户自定义，保留
+    // 当前基线有但包不可解析：宿主 never started，删（2026-11-06）
+    if (baseRows.has(row.id) && rowPkgMissing(row, resolvePkg)) {
+      rawEdits.push(deleteItemEdit(src.text, row))
+      removed.push(row.id)
+      removedHostMissing.push(row.id)
+      continue
+    }
+    if (!baseRows.has(row.id)) {
+      rawEdits.push(deleteItemEdit(src.text, row))
+      removed.push(row.id)
+    }
   }
 
   const wrapper = `preset-${pid}`
-  const missing = [...baseRows].filter((id) => !userSet.has(id) && id !== wrapper)
+  // 宿主不提供的行已被删除，不再计入「缺失标准行」（否则报缺又补不回，自相矛盾）
+  const missing = [...baseRows].filter((id) => !userSet.has(id) && id !== wrapper && !removedHostMissing.includes(id))
 
-  return { edits: dedupNested(rawEdits), removed, missing, baselineVersion: baseline.version }
+  return { edits: dedupNested(rawEdits), removed, removedHostMissing, missing, baselineVersion: baseline.version }
 }
 
 /**
@@ -65,7 +79,7 @@ export function planAlignForPreset(src, presetRow, { baseline, allBaselines } = 
  * 留：任何基线都没出现过的行（用户自定义/第三方，无从判定绝不删）。
  * 不报 missing：自定义预设本就是用户自选子集，无「补齐标准行」语义。
  */
-export function planAlignForCustomPreset(src, presetRow, { baseline, allBaselines } = {}) {
+export function planAlignForCustomPreset(src, presetRow, { baseline, allBaselines, resolvePkg } = {}) {
   const pid = presetRow.presetId
   const empty = { edits: [], removed: [], missing: [], baselineVersion: baseline?.version ?? '' }
   if (!pid || !baseline || !Array.isArray(allBaselines)) return empty
@@ -78,7 +92,9 @@ export function planAlignForCustomPreset(src, presetRow, { baseline, allBaseline
   const removed = []
   for (const row of src.rows) {
     if (row === presetRow || !within(row, presetRow) || !row.id) continue
-    if (row.id === wrapper || currentUnion.has(row.id) || !histUnion.has(row.id)) continue
+    if (row.id === wrapper || !histUnion.has(row.id)) continue
+    // 当前版本仍活且包可解析 → 保留；否则删（死标准成员 / 宿主不提供）
+    if (currentUnion.has(row.id) && !rowPkgMissing(row, resolvePkg)) continue
     rawEdits.push(deleteItemEdit(src.text, row))
     removed.push(row.id)
   }

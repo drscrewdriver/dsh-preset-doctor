@@ -18,6 +18,7 @@ import { defaultTimestamp } from './fix/core.js'
 import { summarize, renderText, renderJson, collectPresets, eraCatalogFor, DISCLAIMER } from './report.js'
 import { registerPresetDoctorCommand } from './commands.js'
 import { classifyComposition } from './rules/composition-drift.js'
+import { resolvePkg as realResolvePkg } from './pkg-resolve.js'
 import { baselineForVersion, loadBaseline } from './tables/load.js'
 import { installSettingsWaist } from './settings-waist.js'
 import { makeSettingsBridge } from './bridge.js'
@@ -74,6 +75,9 @@ export function apply(ctx, config = {}) {
   // 确定性化（避免依赖本地 ancestor node_modules / Electron 注入）。readConfig
   // 会丢弃非白名单键，因此这里从 closure 直接取。无注入时 scanAll 会默认落到真实 resolvePkg。
   const resolvePkgOverride = typeof config.resolvePkg === 'function' ? config.resolvePkg : undefined
+  // 行分类/对齐/跟随共用的包可解析性 resolver：测试注入优先，否则真实解析链
+  //（与 scanAll→checkPackage 的 R-PKG-MISSING 判据同源）。
+  const rowResolver = resolvePkgOverride ?? realResolvePkg
   const scanOpts = (cfg) => ({
     home: resolveDshHome(cfg.homeOverride),
     scanProfiles: cfg.scanProfiles,
@@ -122,7 +126,7 @@ export function apply(ctx, config = {}) {
         if (!presetRow.presetId) continue
         composition.push({
           file: src.file,
-          ...classifyComposition(src, presetRow, { baseline, allBaselines, currentVersion: summary.detectedVersion }),
+          ...classifyComposition(src, presetRow, { baseline, allBaselines, currentVersion: summary.detectedVersion, resolvePkg: rowResolver }),
         })
       }
     }
@@ -169,18 +173,18 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  /** composition 对齐（桥 align 路由）：重扫取最新源 → 行级删漂移行（confirm 已在桥门）。 */
+  /** composition 对齐（桥 align 路由）：重扫取最新源 → 行级删漂移行 + 宿主不提供行（confirm 已在桥门）。 */
   function runAlignAction({ file, presetId, dryRun } = {}) {
     const cfg = current()
     const scan = scanAll(scanOpts(cfg))
-    return alignPreset(scan, { file, presetId, dryRun: dryRun === true, ts: defaultTimestamp() })
+    return alignPreset(scan, { file, presetId, dryRun: dryRun === true, ts: defaultTimestamp(), resolvePkg: rowResolver })
   }
 
   /** 行级三档 toggle（桥 toggle 路由）：重扫 → 置行 跟随/开启/关闭（confirm 双门）。 */
   function runToggleAction({ file, presetId, rowId, mode, disabled, confirm, dryRun } = {}) {
     const cfg = current()
     const scan = scanAll(scanOpts(cfg))
-    return toggleRow(scan, { file, presetId, rowId, mode, disabled, confirm: confirm === true, dryRun: dryRun === true, ts: defaultTimestamp() })
+    return toggleRow(scan, { file, presetId, rowId, mode, disabled, confirm: confirm === true, dryRun: dryRun === true, ts: defaultTimestamp(), resolvePkg: rowResolver })
   }
 
   /** 遗留目录冲突的授权转写收尾（桥 resolve-legacy 路由）：重扫 → 对齐声明到当前版本默认预设参照 + 归档目录（confirm 硬门 + .bak 备份）。 */

@@ -1,4 +1,30 @@
 import { compareSemver } from '../tables/load.js'
+import { isLocalPath, pkgPart } from '../pkg-resolve.js'
+import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+/** cordis: 前缀是内建虚拟行——不做存在性判定；相对路径仅目录时代合法语义，不判。 */
+function isVirtualOrRelative(name) {
+  return typeof name !== 'string' || name === '' || /^cordis:/.test(name) || isLocalPath(name)
+}
+
+/** 绝对 file:// 声明的存在性：宿主加载器按 URL 取文件，不存在同样 never started。 */
+function localFileMissing(name) {
+  if (!/^file:/i.test(name)) return false
+  try {
+    return !fs.existsSync(fileURLToPath(name))
+  } catch {
+    return false // URL 解析不了：保守不判（交给 R-PKG-MISSING 报告层处置）
+  }
+}
+
+/** 行引用包/本地文件在当前安装是否可解析（判据与 R-PKG-MISSING 同源：按包本体、opts 透传）。未注入 resolver → 仅本地文件可判，包保守视为存在（旧行为）。 */
+export function rowPkgMissing(row, resolvePkg) {
+  if (isVirtualOrRelative(row.name)) return false
+  if (/^file:/i.test(row.name)) return localFileMissing(row.name) // 本地声明：只判存在性，不走 npm 解析
+  if (typeof resolvePkg !== 'function') return false
+  return !resolvePkg(pkgPart(row.name), {}).ok
+}
 
 /** 取某预设行 range 范围内全部后代行的 id → 首个行号（preset 自身除外）。 */
 function descendantRows(src, preset) {
@@ -78,8 +104,14 @@ function versionsWith(allBaselines, pid, rid) {
  *     用户定案（2026-10-19）：逻辑上不存在对应项→默认按关闭解析（defaultOn=false），
  *     UI 诚实标「无基准·默认停用」；兜底失效手段保留：置 disabled / 手工改名失效。
  *   triState: 三档派生态 'follow'（状态==默认）| 'on'（强制开，默认本关）| 'off'（强制关，默认本开）
+ *   pkgMissing: 行引用包在当前安装不可解析，或绝对 file:// 本地文件不存在（宿主不提供）。
+ *     2026-11-06 定案：可解析性并入识别机制——基线成员但不可解析的行，「跟随」按停用解析
+ *     （defaultOn=false，UI 不再显示「基准·启用」误导）；triState 诚实派生：
+ *     未显式关→'off'（强制关，因为默认本关且盘面未关≠它真能活），
+ *     已显式关→'follow'（与停用默认一致）。依据：宿主 agent-preset/invalid
+ *     … never started 实证——行装载失败即整条预设失败，声明在基线里≠跑得起来。
  */
-export function classifyComposition(src, presetRow, { baseline, allBaselines, currentVersion } = {}) {
+export function classifyComposition(src, presetRow, { baseline, allBaselines, currentVersion, resolvePkg } = {}) {
   const pid = presetRow.presetId
   const baseRows = new Set(baseline?.presets?.[pid] || [])
   const union = new Set((allBaselines || []).flatMap((s) => s.presets?.[pid] || []))
@@ -114,11 +146,17 @@ export function classifyComposition(src, presetRow, { baseline, allBaselines, cu
       const d = row.node && typeof row.node.get === 'function' ? row.node.get('disabled') : undefined
       disabled = d === true || d === 'true'
     } catch { /* 保守：读不到当未禁用 */ }
-    const defaultOn = defaultSet.has(row.id)
+    const pkgMissing = rowPkgMissing(row, resolvePkg)
+    // 默认态 = 基线成员 且 包可解析；有效启用态 = 未显式关 且 包可解析
+    const defaultOn = defaultSet.has(row.id) && !pkgMissing
     const noBaseline = !anyBaselineUnion.has(row.id)
-    const enabled = !disabled
-    const triState = enabled === defaultOn ? 'follow' : (enabled ? 'on' : 'off')
-    rows.push({ id: row.id, line: row.line, disabled, defaultOn, noBaseline, triState, state, driftKind, firstVer, lastVer })
+    const enabled = !disabled && !pkgMissing
+    // 宿主不提供的行：盘面无 disabled 标记时「跟随」并不能让它活——诚实标 'off'；
+    // 已显式 disabled 的行反而与（按停用解析的）默认一致 → follow。
+    const triState = pkgMissing
+      ? (disabled ? 'follow' : 'off')
+      : enabled === defaultOn ? 'follow' : (enabled ? 'on' : 'off')
+    rows.push({ id: row.id, line: row.line, disabled, defaultOn, noBaseline, pkgMissing, triState, state, driftKind, firstVer, lastVer })
   }
   const userSet = new Set(rows.map((r) => r.id))
   const missing = [...baseRows].filter((id) => id !== `preset-${pid}` && !userSet.has(id))

@@ -13,7 +13,7 @@ import { planFileEdits } from './planner.js'
 import { migrateLegacyDirs } from './migrate-legacy.js'
 import { planAlignForPreset } from './composition-align.js'
 import { runResolveLegacy } from './resolve-legacy.js'
-import { makeDisabledEdit, makeEnableEdit } from './row-edit.js'
+import { makeDisabledEdit, makeEnableEdit, deleteItemEdit } from './row-edit.js'
 import { writeFileSafe, defaultTimestamp, displayPath, spliceEdits } from './core.js'
 import { baselineForVersion, loadBaseline } from '../tables/load.js'
 
@@ -163,6 +163,55 @@ export function runToggle(scanResult, { file, presetId, rowId, mode, disabled, c
     out.status = targetDisabled ? 'already-disabled' : 'not-disabled'
     return out
   }
+  try {
+    const newText = spliceEdits(src.text, [edit])
+    const write = writeFileSafe(file, newText, src.text, { dryRun, ts })
+    out.status = write.status
+    out.backup = write.backup
+  } catch (e) {
+    out.errors.push({ message: e.message })
+  }
+  return out
+}
+
+/**
+ * 行级删除（桥 delete 路由）：把某预设内的一条自定义插件声明行整块移除。
+ * 与 runToggle 同一安全模型：confirm 硬门 + .bak 备份 + 原子写；仅自定义行可删
+ * （该行在当前版本基线里存在 = 内置/官方行，拒绝，防误删官方配置）。
+ */
+export function runDelete(scanResult, { file, presetId, rowId, confirm = false, dryRun = false, ts = defaultTimestamp() } = {}) {
+  const out = { dryRun, ts, file: file ? displayPath(file) : undefined, presetId, rowId, status: 'noop', backup: undefined, errors: [] }
+  if (confirm !== true) {
+    out.status = 'rejected'
+    out.errors.push({ message: '写盘需显式确认 confirm:true' })
+    return out
+  }
+  const src = (scanResult.sources || []).find((s) => s.file === file)
+  const presetRow = src?.presetRows?.find((r) => r.presetId === presetId)
+  if (!src || !presetRow || !presetRow.range) {
+    out.status = 'not-found'
+    out.errors.push({ message: `未找到预设声明 ${presetId} @ ${file}` })
+    return out
+  }
+  const row = (src.rows || []).find(
+    (r) => r.id === rowId && r.range && r.range[0] >= presetRow.range[0] && r.range[1] <= presetRow.range[1],
+  )
+  if (!row?.node) {
+    out.status = 'row-not-in-preset'
+    out.errors.push({ message: `预设 ${presetId} 内未找到行 ${rowId}` })
+    return out
+  }
+  // 仅自定义行可删：若该行在当前版本基线（本预设或 standard 参照）里存在，视为内置/官方行，拒绝。
+  const baseline = baselineForVersion(scanResult?.detectedVersion)
+  if (baseline) {
+    const baseRows = new Set([...(baseline.presets?.[presetId] || []), ...(baseline.presets?.standard || [])])
+    if (baseRows.has(rowId)) {
+      out.status = 'not-custom'
+      out.errors.push({ message: `${rowId} 是当前版本内置基线行，仅自定义行可删（防误删官方配置）` })
+      return out
+    }
+  }
+  const edit = deleteItemEdit(src.text, row.node)
   try {
     const newText = spliceEdits(src.text, [edit])
     const write = writeFileSafe(file, newText, src.text, { dryRun, ts })

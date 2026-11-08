@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Preset Doctor",
+    "description": "Detects broken agent presets and repairs them mechanically, with backup before writing, atomic writes and idempotence; the rest are reported line by line."
+  }
+}

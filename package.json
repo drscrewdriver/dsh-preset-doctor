@@ -17,6 +17,7 @@
   "exports": {
     ".": "./src/index.js",
     "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -85,7 +86,8 @@
     "dsh.plugin.json",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "locale"
   ],
   "engines": {
     "node": "^22.19.0 || >=24.0.0",

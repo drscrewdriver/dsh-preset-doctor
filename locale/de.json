@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Preset-Arzt",
+    "description": "Erkennt defekte Agent-Presets und repariert sie mechanisch – mit Sicherung vor dem Schreiben, atomarem Schreiben und Idempotenz; der Rest wird zeilenweise gemeldet."
+  }
+}

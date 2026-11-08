@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Docteur de préréglages",
+    "description": "Détecte les préréglages d'agent cassés et les répare mécaniquement, avec sauvegarde avant écriture, écriture atomique et idempotence ; le reste est signalé ligne par ligne."
+  }
+}

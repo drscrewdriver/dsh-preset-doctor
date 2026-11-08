@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Dottore dei preset",
+    "description": "Rileva i preset degli agenti non funzionanti e li ripara meccanicamente, con backup prima della scrittura, scrittura atomica e idempotenza; il resto viene segnalato riga per riga."
+  }
+}

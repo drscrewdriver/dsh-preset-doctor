@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Doctor de preajustes",
+    "description": "Detecta preajustes de agente rotos y los repara mecánicamente, con copia de seguridad antes de escribir, escritura atómica e idempotencia; el resto se informa línea por línea."
+  }
+}

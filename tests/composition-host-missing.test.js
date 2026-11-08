@@ -14,6 +14,7 @@ import { parsePatchFile } from '../src/scan.js'
 import { planAlignForPreset } from '../src/fix/composition-align.js'
 import { runAlign, runToggle } from '../src/fix/index.js'
 import { baselineForVersion, loadBaseline } from '../src/tables/load.js'
+import { collectBundleDisabledIds } from '../src/pkg-resolve.js'
 import { makeDshResolve } from './_stub-resolve.js'
 
 const DEAD = '@deepseek-ai/dsh-tool-subagent-control'
@@ -109,7 +110,7 @@ function tmpPatch(t, text = PATCH) {
   return file
 }
 
-test('planAlign：真实基线 0.2.1-rc.3 + 死包 resolver → 删两行进 removedHostMissing；可解析行/自定义行保留', (t) => {
+test('planAlign：真实基线 0.2.1-rc.3 + 死包 resolver → 不可解析行退避停用；可解析的官方 true 行不动', (t) => {
   const file = tmpPatch(t)
   const src = parsePatchFile(file, 'profile', 'desktop')
   const preset = src.presetRows.find((r) => r.presetId === 'standard')
@@ -117,41 +118,45 @@ test('planAlign：真实基线 0.2.1-rc.3 + 死包 resolver → 删两行进 rem
     baseline: baselineForVersion('0.2.1-rc.3'), allBaselines: loadBaseline(),
     resolvePkg: makeDshResolve({ dead: [DEAD, 'some-third-party-tool'] }),
   })
-  assert.deepEqual(plan.removedHostMissing.sort(), ['tool-subagent-control', 'tool-subagent-list-agents'])
-  assert.ok(plan.removed.includes('tool-subagent-control') && plan.removed.includes('tool-subagent-list-agents'))
-  assert.ok(!plan.removed.includes('persona') && !plan.removed.includes('my-custom-tool'), '可解析基线行/自定义行不删')
+  assert.deepEqual(plan.removedHostMissing.sort(), ['my-custom-tool', 'tool-subagent-control', 'tool-subagent-list-agents'],
+    '三行的包都不可解析→安档退避（my-custom-tool 同时也不在参照默认集）')
+  assert.deepEqual(plan.disabledOfficialOff, [], '已被 unavailable 档吃进，不重复计入官方停用档')
+  assert.ok(!plan.removed.includes('persona'), '官方 true 且可解析的行不动')
 })
 
-test('runAlign：写盘删除宿主不提供行 + 注释/自定义行原样保留 + 幂等', (t) => {
+test('runAlign：写盘停用宿主不提供行（不删行）+ 注释/自定义行原样保留 + 幂等', (t) => {
   const file = tmpPatch(t)
   const resolvePkg = makeDshResolve({ dead: [DEAD, 'some-third-party-tool'] })
   const src = parsePatchFile(file, 'profile', 'desktop')
   const scanResult = { home: path.dirname(file), sources: [src], findings: [], detectedVersion: '0.2.1-rc.3' }
   const r1 = runAlign(scanResult, { file, presetId: 'standard', ts: 'T1', resolvePkg })
   assert.equal(r1.status, 'written')
-  assert.ok(r1.removed.includes('tool-subagent-control'), 'control 行删除')
-  assert.ok(r1.removed.includes('tool-subagent-list-agents'), 'list-agents 行删除')
-  assert.deepEqual(r1.removedHostMissing.sort(), ['tool-subagent-control', 'tool-subagent-list-agents'])
+  assert.ok(r1.removed.includes('tool-subagent-control'), 'control 行被停用')
+  assert.ok(r1.removed.includes('tool-subagent-list-agents'), 'list-agents 行被停用')
+  assert.deepEqual(r1.removedHostMissing.sort(), ['my-custom-tool', 'tool-subagent-control', 'tool-subagent-list-agents'])
+  assert.deepEqual(r1.disabledOfficialOff, [], 'my-custom-tool 在本 fixture 同时是死包→计入 unavailable 档')
   const after = fs.readFileSync(file, 'utf8')
-  assert.ok(!/id:\s*tool-subagent-control/.test(after))
-  assert.ok(!/id:\s*tool-subagent-list-agents/.test(after))
+  assert.match(after, /- id: tool-subagent-control\r?\n\s+disabled: true/, 'control 行本体保留 + 写 disabled')
+  assert.match(after, /- id: tool-subagent-list-agents\r?\n\s+disabled: true/, 'list-agents 行本体保留 + 写 disabled')
   assert.ok(after.includes('# 用户注释保留'), '注释不动')
-  assert.ok(after.includes('my-custom-tool'), '自定义行保留')
-  assert.ok(after.includes('persona'), '可解析基线行保留')
-  // 幂等：重扫后无可删 → noop
+  assert.match(after, /- id: my-custom-tool\r?\n\s+disabled: true/, '不在参照默认集的行保留本体仅退避停用')
+  assert.ok(after.includes('persona'), '可解析官方行不动')
+  // 幂等：重扫后无可停用 → noop
   const src2 = parsePatchFile(file, 'profile', 'desktop')
   const r2 = runAlign({ ...scanResult, sources: [src2] }, { file, presetId: 'standard', ts: 'T2', resolvePkg })
   assert.equal(r2.status, 'noop')
   assert.deepEqual(r2.removed, [])
 })
 
-test('runAlign：不注入 resolvePkg → 旧行为，包死行保留（保守）', (t) => {
+test('runAlign：不注入 resolvePkg → 包死行保留（保守旧行为），但不在参照默认集的行照样退避', (t) => {
   const file = tmpPatch(t)
   const src = parsePatchFile(file, 'profile', 'desktop')
   const scanResult = { home: path.dirname(file), sources: [src], findings: [], detectedVersion: '0.2.1-rc.3' }
   const r = runAlign(scanResult, { file, presetId: 'standard', ts: 'T1' })
-  assert.equal(r.status, 'noop', '无漂移、无 resolver → 什么都不删')
-  assert.ok(fs.readFileSync(file, 'utf8').includes('tool-subagent-control'))
+  assert.deepEqual(r.removedHostMissing, [], '无 resolver → 不可解析档不启用')
+  assert.deepEqual(r.disabledOfficialOff, ['my-custom-tool'], '退避档不依赖 resolver，照样停用')
+  assert.equal(r.status, 'written')
+  assert.ok(fs.readFileSync(file, 'utf8').includes('tool-subagent-control'), '包死行本体与启用态都不动')
 })
 
 // ---- runToggle follow：宿主不提供 → 按停用解析 ----
@@ -166,33 +171,133 @@ const TOGGLE_PATCH = `- insert:
             name: '@deepseek-ai/dsh-tool-subagent-control'
 `
 
-test('toggle follow：基线成员但包不可解析→写 disabled（defaultOn=false）', (t) => {
+// ---- bundle 层定向禁用（desktop 实证形态：包可解析但 agent-team-profile 把行全局关掉）----
+
+test('classify：包可解析但 id 在 hostDisabled 集→不再基准·启用，标 off + hostDisabled', () => {
+  const B = baselineForVersion('0.2.1-rc.3')
+  const src = srcWithRows([
+    { id: 'tool-subagent-control', name: DEAD },
+    { id: 'tool-subagent-list-agents', name: DEAD + '/list-agents' },
+    { id: 'persona', name: '@deepseek-ai/dsh-persona' },
+  ])
+  const c = classifyComposition(src, src.presetRows[0], {
+    baseline: B, allBaselines: loadBaseline(), currentVersion: '0.2.1-rc.3',
+    resolvePkg: makeDshResolve(), // 全活：只能靠 hostDisabled 集触发
+    hostDisabled: new Set(['tool-subagent-control', 'tool-subagent-list-agents']),
+  })
+  const byId = Object.fromEntries(c.rows.map((r) => [r.id, r]))
+  assert.equal(byId['tool-subagent-control'].pkgMissing, false, '包本身可解析')
+  assert.equal(byId['tool-subagent-control'].hostDisabled, true)
+  assert.equal(byId['tool-subagent-control'].unavailable, true)
+  assert.equal(byId['tool-subagent-control'].defaultOn, false)
+  assert.equal(byId['tool-subagent-control'].triState, 'off')
+  assert.equal(byId['persona'].hostDisabled, false, '集外行不受影响')
+  assert.equal(byId['persona'].defaultOn, true)
+})
+
+test('collectBundleDisabledIds：从 profile bundles 自带 patch 收集定向禁用行 id', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-bundis-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const pkgDir = path.join(dir, 'node_modules', '@scope', 'team-profile')
+  fs.mkdirSync(pkgDir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dsh: { profile: { bundles: ['@scope/team-profile', 'not-installed-pkg'] } } }), 'utf8')
+  fs.writeFileSync(path.join(pkgDir, 'cordis.patch.yml'), `- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- insert:
+    - id: agent-team
+      name: '@scope/team'
+`, 'utf8')
+  const set = collectBundleDisabledIds(dir)
+  assert.deepEqual([...set].sort(), ['tool-subagent-control', 'tool-subagent-list-agents'])
+  assert.ok(!set.has('agent-team'), 'insert 条目不入集')
+  assert.deepEqual([...collectBundleDisabledIds(path.join(dir, 'nope'))], [], '目录不存在→空集 fail-open')
+})
+
+test('runAlign：包全活但 bundle 禁用→仍停用两行（removedHostMissing，行本体保留）', (t) => {
+  const file = tmpPatch(t)
+  const scanResult = { home: path.dirname(file), sources: [parsePatchFile(file, 'profile', 'desktop')], findings: [], detectedVersion: '0.2.1-rc.3' }
+  const r = runAlign(scanResult, {
+    file, presetId: 'standard', ts: 'T1',
+    resolvePkg: makeDshResolve(), hostDisabled: new Set(['tool-subagent-control', 'tool-subagent-list-agents']),
+  })
+  assert.equal(r.status, 'written')
+  assert.deepEqual(r.removedHostMissing.sort(), ['tool-subagent-control', 'tool-subagent-list-agents'])
+  const after = fs.readFileSync(file, 'utf8')
+  assert.ok(after.includes('tool-subagent-list-agents'), '行本体不被删除')
+  assert.match(after, /- id: tool-subagent-list-agents\r?\n\s+disabled: true/, '改为写 disabled: true')
+})
+
+test('toggle：bundle 禁用行——on 硬拒（开了整条预设会从可用列表消失），follow 退避写 disabled', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-toggle-bd-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const file = path.join(dir, 'cordis.patch.yml')
+  fs.writeFileSync(file, TOGGLE_PATCH, 'utf8')
+  const scan = () => ({ sources: [parsePatchFile(file, 'profile', 'desktop')], findings: [], detectedVersion: '0.2.1-rc.3' })
+  const opts = { resolvePkg: makeDshResolve(), hostDisabled: new Set(['tool-subagent-control']) }
+  // 1) 开启被 bundle 全局禁用的行 → 硬拒不写盘（旧版在此删键/写 false，直接把整条预设弄死）
+  const rOn = runToggle(scan(), {
+    file, presetId: 'standard', rowId: 'tool-subagent-control', mode: 'on',
+    confirm: true, ts: 'T0', ...opts,
+  })
+  assert.equal(rOn.status, 'host-unavailable')
+  assert.equal(rOn.unavailableReason, 'bundle', '成因回报：bundle 层定向禁用')
+  assert.match(rOn.errors[0].message, /不能开启/)
+  assert.ok(!fs.existsSync(`${file}.bak-T0`), '拒绝时不备份不写盘')
+  // 2) follow 对这类行不再“删键交回宿主”，而是退避为 disabled:true
+  const r = runToggle(scan(), {
+    file, presetId: 'standard', rowId: 'tool-subagent-control', mode: 'follow',
+    confirm: true, ts: 'T1', ...opts,
+  })
+  assert.equal(r.status, 'written', '宿主不提供→follow 退避落盘')
+  assert.equal(r.defaultOn, false)
+  assert.match(fs.readFileSync(file, 'utf8'), /- id: tool-subagent-control\r?\n\s+disabled: true/)
+  // 3) 已停用后再 follow → 无改动（幂等）
+  const r2 = runToggle(scan(), {
+    file, presetId: 'standard', rowId: 'tool-subagent-control', mode: 'follow',
+    confirm: true, ts: 'T2', ...opts,
+  })
+  assert.equal(r2.status, 'already-disabled')
+})
+
+test('toggle 三档载体：可用行 follow=删键；不可解析行 on 硬拒、follow/off 退避写 true', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-toggle-hm-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const file = path.join(dir, 'cordis.patch.yml')
   fs.writeFileSync(file, TOGGLE_PATCH, 'utf8')
   const scan = () => ({ sources: [parsePatchFile(file, 'profile', 'desktop')], findings: [], detectedVersion: '0.2.1-rc.3' })
+  const deadOpts = { resolvePkg: makeDshResolve({ dead: [DEAD] }) }
+  // 1) 包不可解析 + on → 硬拒（强行启用=整条预设 never started）
+  const rOn = runToggle(scan(), {
+    file, presetId: 'standard', rowId: 'tool-subagent-control', mode: 'on',
+    confirm: true, ts: 'T0', ...deadOpts,
+  })
+  assert.equal(rOn.status, 'host-unavailable')
+  assert.equal(rOn.unavailableReason, 'pkg')
+  assert.ok(!fs.existsSync(`${file}.bak-T0`))
+  // 2) 包不可解析 + follow → 退避写 disabled:true（旧版在此不写盘，把死行留成启用态）
   const r = runToggle(scan(), {
     file, presetId: 'standard', rowId: 'tool-subagent-control', mode: 'follow',
-    confirm: true, ts: 'T1', resolvePkg: makeDshResolve({ dead: [DEAD] }),
+    confirm: true, ts: 'T1', ...deadOpts,
   })
   assert.equal(r.status, 'written')
-  assert.equal(r.defaultOn, false)
-  assert.equal(r.disabled, true)
-  assert.match(fs.readFileSync(file, 'utf8'), /disabled:\s*true/)
-  // 不注入 resolver 时旧行为：行已带 disabled，follow 按基线默认（启用）→ 把 disabled 删回去
+  assert.equal(r.declared, 'absent')
+  assert.equal(r.defaultOn, false, '包不可解析→跟随解析为停用')
+  assert.match(fs.readFileSync(file, 'utf8'), /- id: tool-subagent-control\r?\n\s+disabled: true/)
+  // 3) off 对已停用行 → 无改动
   const r2 = runToggle(scan(), {
-    file, presetId: 'standard', rowId: 'tool-subagent-control', mode: 'follow',
-    confirm: true, ts: 'T2',
+    file, presetId: 'standard', rowId: 'tool-subagent-control', mode: 'off',
+    confirm: true, ts: 'T2', ...deadOpts,
   })
-  assert.equal(r2.status, 'written')
-  assert.equal(r2.defaultOn, true)
-  assert.equal(r2.disabled, false)
-  assert.ok(!/disabled:\s*true/.test(fs.readFileSync(file, 'utf8')), '旧语义回到启用、盘面复原')
-  // 再 follow（仍无 resolver）：已启用+默认启用 → not-disabled 幂等
+  assert.equal(r2.status, 'already-disabled')
+  // 4) 包可解析时：上一步已写入 disabled:true → follow 删键回到跟随态
   const r3 = runToggle(scan(), {
     file, presetId: 'standard', rowId: 'tool-subagent-control', mode: 'follow',
     confirm: true, ts: 'T3',
   })
-  assert.equal(r3.status, 'not-disabled')
+  assert.equal(r3.status, 'written')
+  assert.ok(!/disabled:/.test(fs.readFileSync(file, 'utf8')), '可用行 follow → 删键')
 })

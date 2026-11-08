@@ -79,19 +79,19 @@ export function resolveLegacyConflicts(conflictFindings, { home, sources, detect
     const out = { id: legacy.id, status: 'resolved', file: decl.src.file, aligned: null, backup: undefined, archive: null }
     // 步 1：转写声明对齐到当前版本默认预设参照（无基线判定时跳过并如实报告）
     if (!baseline) {
-      out.aligned = { status: 'no-baseline', removed: [], missing: [] }
+      out.aligned = { status: 'no-baseline', removed: [], guarded: [], missing: [] }
     } else {
       const isBuiltin = Boolean(baseline.presets?.[legacy.id])
       const plan = isBuiltin
         ? planAlignForPreset(decl.src, decl.presetRow, { baseline, allBaselines })
         : planAlignForCustomPreset(decl.src, decl.presetRow, { baseline, allBaselines })
       if (plan.edits.length === 0) {
-        out.aligned = { status: 'noop', removed: [], missing: plan.missing ?? [] }
+        out.aligned = { status: 'noop', removed: [], guarded: plan.guarded ?? [], missing: plan.missing ?? [] }
       } else {
         try {
           const newText = spliceEdits(decl.src.text, plan.edits)
           const write = writeFileSafe(decl.src.file, newText, decl.src.text, { dryRun, ts })
-          out.aligned = { status: write.status, removed: plan.removed, missing: plan.missing ?? [] }
+          out.aligned = { status: write.status, removed: plan.removed, guarded: plan.guarded ?? [], missing: plan.missing ?? [] }
           out.backup = write.backup
           if (write.status === 'written' || write.status === 'would-write') {
             decl.src.text = newText // 同批多预设共享源：行 range 基于旧文本，重扫前只保内存一致

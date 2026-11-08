@@ -118,6 +118,18 @@ export function collectPresets(scanResult) {
   const sources = Array.isArray(scanResult?.sources) ? scanResult.sources : []
   const findings = Array.isArray(scanResult?.findings) ? scanResult.findings : []
   const eraByPreset = new Map(eraAnalysis(findings).map((e) => [e.preset, e]))
+  // registry 默认选择集（删预设护栏与 UI 徽章用）：顶层 id 覆盖行里的 selectedDefault/default
+  const defaultIds = new Set()
+  for (const src of sources) {
+    const pool = [...(Array.isArray(src.overrideRows) ? src.overrideRows : []), ...(Array.isArray(src.rows) ? src.rows : [])]
+    for (const row of pool) {
+      if (!/dsh-agent-preset-registry$/.test(String(row?.name ?? ''))) continue
+      for (const key of ['selectedDefault', 'default']) {
+        const v = configScalar(row.configNode, key)
+        if (v) defaultIds.add(v)
+      }
+    }
+  }
   const presets = []
   const seen = new Set()
 
@@ -135,6 +147,7 @@ export function collectPresets(scanResult) {
     if (seen.has(key)) return
     seen.add(key)
     p.key = key
+    p.isDefault = defaultIds.has(String(p.id))
     p.broken = brokenFor(p)
     const era = eraByPreset.get(String(p.id))
     if (era) p.era = { baseEra: era.baseEra, hops: era.hops }
@@ -210,6 +223,7 @@ export function presetsForUi(presets) {
     era: p.era ?? null,
     current: p.current,
     syncable: p.syncable,
+    isDefault: p.isDefault === true,
     broken: p.broken.map((f) => ({ rule: f.rule, level: f.level, line: f.line, reason: f.reason, suggestion: f.suggestion })),
   }))
 }
@@ -236,6 +250,17 @@ export function summarize(scanResult, fixResult) {
       : undefined,
     detectedVersion: scanResult.detectedVersion,
     detectedVersionVia: scanResult.detectedVia,
+    // 扫描源清单（升级观测用）：预设「存在哪」是否随版本变，报告里直接列出来，
+    // 不用人去猜 home / profile / legacy-dir 哪个还在。
+    sources: (Array.isArray(scanResult.sources) ? scanResult.sources : []).map((s) => ({
+      file: s.file,
+      layer: s.layer,
+      profile: s.profile ?? '',
+      rows: Array.isArray(s.rows) ? s.rows.length : 0,
+      presets: Array.isArray(s.presetRows) ? s.presetRows.length : 0,
+      overrides: Array.isArray(s.overrideRows) ? s.overrideRows.length : 0,
+      errors: Array.isArray(s.errors) ? s.errors.length : 0,
+    })),
     total: findings.length,
     byLevel,
     byRule,
@@ -268,6 +293,18 @@ export function renderText(summary) {
     )
   }
   L.push(`预设声明问题共 ${summary.total} 处（机械可修 ${summary.byLevel.auto ?? 0}，需人工 ${summary.byLevel.report ?? 0}）`)
+  // 升级观测：把「这一轮到底扫到了哪几个落点」明写出来（空落点=该位置没东西，不是扫不到）
+  if (Array.isArray(summary.sources) && summary.sources.length) {
+    L.push(`扫描源 ${summary.sources.length} 处：`)
+    for (const s of summary.sources) {
+      const where = s.profile ? `${s.layer}/${s.profile}` : s.layer
+      // 覆盖行（顶层 id 定向 disabled / registry 选择）也算声明：只看行/预设会误读成「空文件」
+      const detail = s.rows || s.presets || s.overrides
+        ? `行 ${s.rows} · 预设 ${s.presets}${s.overrides ? ` · 覆盖 ${s.overrides}` : ''}`
+        : '无声明'
+      L.push(`  [${where}] ${s.file}（${detail}${s.errors ? ` · 解析错误 ${s.errors}` : ''}）`)
+    }
+  }
   if (summary.fix) {
     const fx = summary.fix
     L.push(

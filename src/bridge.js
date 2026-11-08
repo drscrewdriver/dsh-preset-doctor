@@ -203,6 +203,24 @@ export function makeSettingsBridge({ settings, ns, resolveConfig, context } = {}
       }
     },
 
+    /** 预设级删除：整块移除一条预设声明（含其全部子行）。body {file, presetId, confirm:true, allowDefault?}。 */
+    async deletePreset(request) {
+      if (typeof ext.runDeletePreset !== 'function') {
+        return { ok: false, code: 'unavailable', message: 'delete-preset provider not wired' }
+      }
+      if (request === null || typeof request !== 'object' || typeof request.file !== 'string' || typeof request.presetId !== 'string') {
+        return { ok: false, code: 'delete-preset-rejected', message: 'malformed delete-preset request (file+presetId required)' }
+      }
+      if (request.confirm !== true) {
+        return { ok: false, code: 'delete-preset-rejected', message: '写盘需显式确认 confirm:true' }
+      }
+      try {
+        return { ok: true, value: ext.runDeletePreset(request) }
+      } catch (error) {
+        return { ok: false, code: 'internal', message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
     /** 遗留目录冲突的授权转写收尾（对齐声明 + 归档目录）。body {key, confirm:true}。 */
     async resolveLegacy(request) {
       if (typeof ext.runResolveLegacy !== 'function') {
@@ -307,6 +325,19 @@ export function makeSettingsBridge({ settings, ns, resolveConfig, context } = {}
           return
         }
         writeJson(res, 200, await handlers.delete(body))
+      },
+    },
+    {
+      kind: 'exact',
+      path: `${BRIDGE_PREFIX}/delete-preset`,
+      handler: async (req, res) => {
+        if (!guard(req, res)) return
+        const body = await readJsonBody(req)
+        if (body === undefined) {
+          writeJson(res, 400, { ok: false, code: 'delete-preset-rejected', message: 'malformed JSON body' })
+          return
+        }
+        writeJson(res, 200, await handlers.deletePreset(body))
       },
     },
     {

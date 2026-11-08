@@ -1,7 +1,8 @@
 /**
  * R-LEGACY-CONFLICT 授权转写收尾测试（resolve-legacy）。
  * 纪律：confirm 硬门（无 confirm 零写盘）；对齐以「当前版本默认预设」为参照
- * （死标准成员删、用户自定义行留）；遗留目录归档移动而非删除；.bak 备份；幂等。
+ * （官方移出/不在参照默认集的行退避为 disabled:true、绝不删行；表达式行与基线未收录行不动）；
+ * 遗留目录归档移动而非删除；.bak 备份；幂等。
  * 钉 dshVersion=0.2.1-rc.1 与运行宿主解耦。
  */
 import { test } from 'node:test'
@@ -86,7 +87,7 @@ test('冲突卡 syncable=true（授权转写收尾入口打开）', (t) => {
   assert.equal(card.syncable, true, 'R-LEGACY-CONFLICT 卡应可同步（收尾动作）')
 })
 
-test('runResolveLegacy 全链：声明对齐（死标准行删/自定义行留）+ 目录归档 + .bak', (t) => {
+test('runResolveLegacy 全链：声明对齐（disable 退避：非参照默认集的行一律停用）+ 目录归档 + .bak', (t) => {
   const home = tmpHome(t)
   fs.writeFileSync(path.join(home, 'cordis.patch.yml'), CUSTOM_DECL)
   const dir = mkLegacyDir(home, 'winbash')
@@ -95,11 +96,13 @@ test('runResolveLegacy 全链：声明对齐（死标准行删/自定义行留�
   assert.equal(out.status, 'resolved', JSON.stringify(out))
   const r = out.results[0]
   assert.equal(r.id, 'winbash')
-  assert.deepEqual(r.aligned.removed, ['tool-subagent-codex'], '只删已死的标准成员行')
+  assert.deepEqual(r.aligned.removed.sort(), ['my-custom-tool', 'tool-subagent-codex'], '不在参照默认集的行（已移出官方行 + 第三方行）一律退避停用')
+  assert.deepEqual(r.aligned.guarded ?? [], [], '无表达式行、无基线未收录行')
   assert.equal(r.archive.status, 'archived')
   const after = fs.readFileSync(path.join(home, 'cordis.patch.yml'), 'utf8')
-  assert.ok(!after.includes('tool-subagent-codex'), '漂移行应被移除')
-  assert.ok(after.includes('my-custom-tool'), '用户自定义行绝不删')
+  assert.match(after, /- id: my-custom-tool\r?\n\s+disabled: true/, '退避写 disabled: true（不删行）')
+  assert.match(after, /- id: tool-subagent-codex\r?\n\s+disabled: true/, '已移出的官方行也退避停用')
+  assert.ok(after.includes('my-custom-tool'), '行本体保留')
   assert.ok(after.includes('persona'), '当前活行保留')
   assert.ok(after.includes('winbash'), '声明本体保留（转写结果不动）')
   assert.ok(fs.existsSync(path.join(home, 'cordis.patch.yml.bak-TESTTS')), '写前 .bak 备份')
@@ -113,7 +116,7 @@ test('runResolveLegacy 全链：声明对齐（死标准行删/自定义行留�
   assert.equal(again.status, 'not-found')
 })
 
-test('内置 id 覆盖预设冲突收尾：走 planAlignForPreset 删漂移行', (t) => {
+test('内置 id 覆盖预设冲突收尾：已移出的官方行也退避停用（disable 退避）', (t) => {
   const home = tmpHome(t)
   fs.writeFileSync(path.join(home, 'cordis.patch.yml'), BUILTIN_DECL)
   const dir = mkLegacyDir(home, 'standard')
@@ -121,8 +124,9 @@ test('内置 id 覆盖预设冲突收尾：走 planAlignForPreset 删漂移行',
   const out = runResolveLegacy(scan, { key: `legacy|standard|${dir}`, confirm: true, ts: 'T2' })
   assert.equal(out.status, 'resolved', JSON.stringify(out))
   const after = fs.readFileSync(path.join(home, 'cordis.patch.yml'), 'utf8')
-  assert.ok(!after.includes('tool-ralph'), '0.2.1 已移出的标准成员应删')
-  assert.ok(after.includes('tool-bash'), '当前标准成员保留')
+  assert.deepEqual(out.results[0].aligned.removed, ['tool-ralph'], '0.2.1 已移出的官方成员→不在参照默认集→退避停用')
+  assert.match(after, /- id: tool-ralph\r?\n\s+disabled: true/, '只写 disabled，不删行')
+  assert.ok(!/tool-bash\r?\n\s+disabled:/.test(after), '当前标准成员（官方 true）保留启用')
   assert.ok(fs.existsSync(path.join(home, 'preset-doctor-archive', 'T2', 'standard')))
 })
 

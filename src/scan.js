@@ -100,6 +100,7 @@ export function parsePatchFile(file, layer, profile = '') {
     text,
     rows: [],
     presetRows: [],
+    overrideRows: [],
     errors: [],
   }
   const { doc, lineCounter } = parsePatchDoc(text)
@@ -160,7 +161,14 @@ export function parsePatchFile(file, layer, profile = '') {
       continue
     }
     const insertNode = item.get('insert', true)
-    if (insertNode == null) continue // id 定向覆盖/禁用行：合法，非预设声明，跳过
+    if (insertNode == null) {
+      // id 定向覆盖/禁用行：合法，不是预设声明，但仍收集进 overrideRows——
+      // 顶层覆盖行里带着 `agent-preset-registry` 的 default/selectedDefault（删预设护栏要读），
+      // 不收集就看不到 profile patch 里的默认预设选择。
+      const row = analyzeRowNode(item, ctx, 0)
+      if (row) src.overrideRows.push(row)
+      continue
+    }
     if (!isSeqNode(insertNode)) {
       src.errors.push({
         rule: 'R-STRUCT',

@@ -1,5 +1,157 @@
 # Changelog
 
+## 0.8.3 (2026-11-08)
+
+两条主线：**① 预设组合识别与对齐的语义收口**（bundle 层禁用并入判据、真值表 + disable 退避、子路径导出存在性、开启硬拦、预设级删除，见下方「 0.8.3 主体」）；**② 全组件地图与升级观测**（本轮新增）。
+
+全组件地图：把「官方组件 ↔ 预设行 id ↔ 逐版本导出」扒干净。
+
+### 结论先行：版本识别已有，地图不当判据
+
+- 「这一行在当前宿主能不能起」**继续只看运行时探真**（`resolvePkg` 解析包体 + 读该包 `exports` 判子路径）。它是版本自适应的零维护真值，比任何静态表都准。
+- 静态地图只补运行时拿不到的三件事：① **id → 包名/子路径**（缺行提示与将来自动补齐的必需品）；② **组件分级**（runtime/core/tool/client/experimental/provider/api/command/policy）；③ **跨版本演进**（某包/某子路径在哪个版本有/没有）。
+
+### 新表：`src/tables/component-map.json`
+
+三源合并（都是本地真值）：
+
+| 源 | 版本 | 包 | 预设 |
+|---|---|---|---|
+| deepseek-harness 源码树 | 0.2.0-rc.2 | 318 | 4 |
+| CLI 全局安装 bundle | 0.2.1-rc.5 | 305 | 4 |
+| DSH Desktop `app.asar` | 0.2.2-rc.1 | 329 | 4 |
+
+规模：381 个包（去重）、44 行（四份官方预设并集）；分级 core 220 / client 75 / experimental 42 / tool 28 / api 10 / command 3 / runtime 2 / policy 1。
+
+**扒出来的两份真值很有用**：
+- `tool-subagent-list-agents`（`dsh-tool-subagent-control/list-agents`）：`0.2.1-rc.5` ✓ / **`0.2.2-rc.1` ✗**——0.2.2 把 `./list-agents` 从 exports 删了，可 0.2.2-rc.1 自带的 standard 预设仍然列着这一行（上游自己的预设与宿主错位）。
+- `tool-schedule`：`0.2.0-rc.2` ✗ / `0.2.1-rc.5` ✓ / `0.2.2-rc.1` ✓——新版本才有的组件。
+
+### 生成器：`tools/component-map.mjs`（不随包发布）
+
+- 纯函数导出（`categorize` / `splitSpec` / `exportsHas` / `extractPresetRows` / `readInstallScope` / `openAsar` / `readAsarScope` / `collectPresets` / `buildComponentMap`）+ CLI 入口；
+- 预设行提取递归组行（`cordis:group` 的 `config` 直接是行表）；
+- asar 直接手工解 pickle 头读文本（不依赖 Electron）；
+- 三源自动探测（`--repo` / `--cli` / `--asar` 可覆盖，`--no-*` 可关，`--print` 打表）。
+
+### 消费面（薄）
+
+- `tables/load.js`：`loadComponentMap()` / `componentFor(id)` / `componentNameOf(id)`。
+- `classifyComposition`：每行新增 `name`（包声明名，含子路径）与 `cat`（分级）；新增 `missingNames`（缺行 + 该写哪个包 + 分级），`missing` 保持原形不破兼容。
+- UI：缺行提示从「一堆 id」改为 `id（包名）`；不可用行的 tooltip 带包名与子路径。
+- 测试 +6（195 全绿）：表骨架/行记录完整性/两条跨版本真值/工具函数（组行提取、exportsHas）/`missingNames` 透出包名。
+
+### 升级观测（README + 报告）
+
+宿主升级后「预设到底存在哪」会变（落点/格式/内容三样同时变），但之前只能靠手摸。本次：
+
+- **README 新增「升级观测清单：预设『存在哪』会随版本变」**：三代落点表（≤0.1.6 `.agent-presets/<id>/` → ≥0.1.7 `$DSH_HOME/cordis.patch.yml` → ≥0.2.0 `profiles/<name>/cordis.patch.yml`）、三个高频坑（改错 profile / 旧目录残留顶掉新声明 / 把官方 shipped 预设当自己的落点）、升级后五步；另附 `tools/component-map.mjs` 的维护者用法。
+- **扫描报告新增「扫描源 N 处」块**：逐行 `[home] / [profile/<名>] / [legacy-dir]` + 文件路径 + `行 N · 预设 M` + 解析错误数（`summarize()` 新增 `sources` 字段）。无 sources 时整块不输出，旧调用不破。
+- 测试 +1（196 全绿）：`renderText` 扫描源块（含 profile 名、legacy-dir、无 sources 不输出）。
+- README 杂项校正：peer 串补到 `0.2.2-rc.1`；dist-tag 表改为「以 `package.json` 为准」。
+
+> 已发布 npm：`dsh-preset-doctor@0.8.3`（dist-tag `latest`）。开发期装机件用过 `-local.N` 后缀（让 pnpm 重装），发版已统一回落为 `0.8.3`。
+
+### 0.8.3 主体：bundle 层禁用 + 组合识别（2026-11-06 起）
+第二层判据：profile bundle 层定向禁用（hostDisabled）并入识别机制。
+
+- **0.8.2 在 desktop 形态不触发的真因（装机实证）**：宿主 asar 内置 `@deepseek-ai/dsh-tool-subagent-control`，Electron 内可解析性判据恒 ok；真正把行杀死的是 `dsh-experimental-agent-team-profile` 自带 cordis.patch.yml 的顶层定向覆盖（`tool-subagent-control`/`list-agents`/`tool-subagent`/`tool-subagent-fork` 全部 `disabled: true`）——包活、行被全局禁、启用即 never started。
+- **`collectBundleDisabledIds(profileRoot)`**（pkg-resolve.js）：读 profile package.json 的 `dsh.profile.bundles` → 逐包自带 cordis.patch.yml → 收集顶层 id+disabled:true 覆盖行 id 集；insert 条目不入集；读不到/解析失败 fail-open。
+- **`rowUnavailable(row, resolvePkg, hostDisabled)`**（composition-drift.js）= 包不可解析 ∥ bundle 禁用；classify 行新增 `hostDisabled`/`unavailable` 字段，defaultOn/triState 改按 unavailable 派生（pkgMissing 保留原语义）。对齐（planAlignForPreset/CustomPreset）与 follow 档同步换用 rowUnavailable。
+- **src/index.js**：按源文件所属 profile 推导 bundle 禁用集（全局层→空集），list/align/toggle 三路透传；同文件多预设缓存只读一次。
+- **UI**：不可用行徽章区分两种来源——「宿主层已禁用」（bundle 接管，tooltip 说明包可解析但不会启动）与「宿主不提供」（包不可解析）。
+- 测试 +4（hostDisabled 分类翻转/collectBundleDisabledIds 收集与 fail-open/包全活但禁用仍删/follow 写 disabled）；164 例全绿，lint 干净。
+
+### 0.8.3 追加项（2026-11-08）
+
+> 本段开发期的装机件用 `-local.N` 后缀逐版推进（同版本号重打 tarball 不会被 pnpm 重装）；发版已统一回落为 `0.8.3`。
+
+起因：装机桌面形态实测——doctor 迁移出的自定义预设（standard-win 系列）全部丢了 `command-goal` 行，`/goal` 消失，而卡面仍显示「已同步当前」。三件事同根：① 自定义预设识别盲区；② 对齐不再删行；③ 启停解析改为真值表。
+
+#### ① 自定义 id 预设盲区修复
+
+- `classifyComposition` 的 `missing` 早先只按 `baseline.presets[pid]` 算，自定义 id 恒为空集 → 官方行整行丢失也报「已同步当前」；现统一按参照预设（内置→自身；自定义→`inferRefPid` 推断）计算，新增 `missingRef` 回报参照来源。
+- 自定义 id 预设的行不再一律算 `custom`：曾是官方行（任一内置预设任一版本）而当前版本彻底不活 → `drift(removed)`，仅更晚版本才活 → `drift(introduced)`，使卡面「漂移 N」与对齐按钮对自定义预设生效。
+- `runAlign` 早先无条件走 `planAlignForPreset`，自定义预设 `baseRows` 为空 → 直接 `return empty`（点「对齐」完全 no-op）；现按 `baseline.presets[presetId]` 是否命中路由到 `planAlignForCustomPreset`，并透传 `removedHostMissing`/`missingRef`。
+
+#### ② 对齐不再删行
+
+- 新 `makeStateEdit`（row-edit.js）统一实现「只改 `disabled` 值，不碰行本体」；`planAlignForPreset`/`planAlignForCustomPreset`/`runResolveLegacy` 三路均改用它，注释 / `!!js` / 缩进 / 行本体原样保留，用户恢复只需把档拨回「开启」。`removed` 字段名沿用（现语义为「本次新落盘停用」），已落盘的行不计入以保持二次 noop 幂等。`runDelete`（显式删自定义行）不变。
+
+#### ③ 启停解析：真值表 + disable 退避（用户定案 2026-11-08，含两次修订）
+
+解析值只看「官方态」（id 在不在参照默认集）——**无值（无 `disabled` 键）时官方停用就是 false**：
+
+| 官方 | 预设 | 解析 | 对齐 |
+|---|---|---|---|
+| true（在参照默认集）| 无值 / false / true | 跟随预设声明 | 不动 |
+| false（不在默认集，含已移出）| 无值 | **false** | 退避 `disabled:true` |
+| 空（任何内置预设任何版本都无此 id）| 无值 | false | 退避 `disabled:true` |
+| 宿主不提供（包不可解析 / bundle 层禁用）| — | false | 退避（安全档优先）|
+
+**退避不给强制开例外**（用户选定）：连 `disabled: false` 也覆写为 true；已显式 `disabled: true` 的行无改动以保持二次 noop。
+
+- **三档载体重定**：无 `disabled` 键 = 跟随（写盘=删键）；`disabled: false` = 强制开；`disabled: true` = 强制关；值为 `!!js` 表达式 = `dynamic`（第四态）。`rowDeclaredState` 返回 `absent|false|true|dynamic`；`makeStateEdit` 统一三态写入与幂等（对 dynamic 返回 null）；`runToggle` 对 dynamic 行三档全拒（status `dynamic-value`，零写盘）；旧布尔入参 `disabled:false` → follow，保持历史行为。
+- **classify 新字段**：`declared` / `dynamicValue` / `dynamicResolved` / `platformDisabled` / `platform` / `effective` / `alignable` / `inRefSet` / `baselineUncovered`；`defaultOn` = 在参照默认集 且 宿主提供。
+- **参照预设推断 `inferRefPid`**（新）：自定义 id 预设的参照不再写死 standard——按「覆盖率（本预设行集中能被该官方预设解释的比例）→ 共有行数 → 并列优先 standard」选官方预设。写死 standard 会把从 minimal/ptc 迁移出的预设的能力行误判“官方停用”而全部退避。实盘：`simple-reply` 推断为 minimal、`standard-win-flash` 为 ptc、其余为 standard。
+- **平台求值**（用户追加定案）：`evalPlatformDisabled(value, platform)` 只认单一 `process.platform` 比较（`===`/`!==`/`==`/`!=`），按当前运行平台**算完 true/false 再提交解析值**；复合表达式（`||`、环境变量等）一律返回 null 不猜。实盘：`standard-win`/`-flash` 的 `tool-bash` 在 win32 下解析为停用、`tool-pwsh` 为启用（与宿主实际行为一致）。
+- **两条护栏**（没它们会把好预设改废）：
+  - `rowIsThirdParty`：id 未见于基线但 `name` 属 `@deepseek-ai/*` 或 `cordis:` 虚拟行 → 归 `baselineUncovered`，**不退避**（否则 `simple-reply` 的 `fs-local`/`str-replace-editor` 这类基线表从 0.1.7 起未收录的旧官方工具会被关掉）。
+  - `dynamic` 行一律不改写（追写第二个 `disabled` 键是非法 YAML，覆写则抹掉跨平台条件）。
+- **回传字段改名**：`keptDrift`/`disabledNoBaseline` → `disabledOfficialOff` + `guarded`（护栏保留行清单），`runAlign`/`runResolveLegacy` 同步透传。
+
+#### ④ 类型+版本适配：子路径导出存在性（装机实证驱动）
+
+起因：`tool-subagent-list-agents` 一拨「开启」，整条预设立即从可用预设列表消失。实测：桌面 `app.asar` 内 `@deepseek-ai/dsh-tool-subagent-control` 是 **0.2.2-rc.1**，`exports` 只有 `.` / `./src/*` / `./package.json` / `./locale/*.json`——**无 `./list-agents`**；而 CLI 全局那份 0.2.1-rc.5 有。旧判据 `resolvePkg(pkgPart(name))` 只看包本体 → 误判“可用”，开了就 never started。
+
+- `subPathOf(name)` / `subPathExported(pkgDir, sub)`（新）：按包 `exports` 判子路径导出存在性（精确键 / `./x/*` 模式 / conditions 层）；无 `exports` 字段回落文件存在性；读不到包 fail-open。
+- `resolvePkg` 现接受完整名：包体在但子路径缺失 → `{ ok:false, subpathMissing:true }`；`rowPkgMissing` 改为**传完整 name**（不再先取 pkgPart），`rowUnavailableReason` 回报 `'subpath' | 'pkg' | 'bundle' | null` 供文案。
+- `candidateRoots` 新增 **Electron `process.resourcesPath`** 基座（app.asar / app / app.asar.unpacked 下的 node_modules）并**排到最前**，同时展开其 bundle 内层——不加就会拿 CLI 全局那份不同版本副本作判据（同一包两版本 exports 表不同）。
+
+#### ⑤ 开启硬拦：不允许把根本起不来的行拨成启用
+
+- `runToggle(mode:'on')` 对 unavailable 行 → `status:'host-unavailable'` + 成因回报，**零写盘不备份**（旧行为：删键或写 `disabled:false`，直接把整条预设弄死）。
+- `runToggle(mode:'follow')` 对 unavailable 行 → 退避为写 `disabled:true`（删键等于把死行交回宿主加载）；已停用再操 → `already-disabled` 幂等。
+- UI：不可用行的「开启」按钮置灰，tooltip 区分 bundle 禁用 / 子路径无导出 / 包不可解析三种成因；「跟随」tooltip 说明此档会退避落盘。
+
+#### ⑥ 预设级删除（新增动作）
+
+- `runDeletePreset(scanResult, {file, presetId, confirm, allowDefault, dryRun, ts})`：整块删除一条预设声明（含其全部插件子行），与行级删除同一安全模型（confirm 硬门 + `.bak` + 原子写 + 区间外注释不动）。
+- 护栏 `registryDefaults(scanResult)`：被 `agent-preset-registry` 的 `default`/`selectedDefault` 指着的预设默认拒删（`status:'is-default'`，需显式 `allowDefault:true`）。
+- 配套：`scan.js` 新增 `src.overrideRows`（顶层 id 定向覆盖行以前根本不收集，所以读不到 profile patch 里的 `selectedDefault`）；`report.js` 预设视图新增 `isDefault`；桥新增 `delete-preset` 路由；卡面「删除预设」双确认（被默认指着时多一道确认）。
+- **顺带修一个旧缺陷**：桥的 `delete` 路由一直在等 `ext.runDelete`，但 `index.js` 从未接线 → 行级删除实际返回 `delete provider not wired`；现已补上 `runDeleteAction`。
+
+#### ⑦ 事故：client 半边语法错把整个应用打死（local.5 → local.6）
+
+`0.8.3-local.5` 装机后宿主启动失败：`web boot: 1 entry did not activate / dsh-preset-doctor: import failed`，renderer console 的真因是 `dsh-preset-doctor/client.js:295 Uncaught SyntaxError: Unexpected token ')'`——我上一轮改「开启」按钮 tooltip 时写了一个缺 else 分支的嵌套三元：`(r.hostDisabled ? 'A' : r.pkgMissing ? 'B')`。
+
+为什么没被门禁拦住（已修补）：
+- `eslint.config.js` 的 `ignores` **含 `lib/`**，client 半边根本不参与 lint；
+- 单测只 import `src/`，从不加载 `lib/client.js`；
+- 于是这类错误只能在**宿主下一个启动**才暴露，代价是整个应用起不来。
+
+修补：三元拆成 `unavailableRow` + `why` 两个局部常量（不再嵌套）；新增 `tests/syntax.test.js`：对 `src/` + `lib/` 每份 .js 逐个 `node --check`，并校验双清单版本一致与入口文件存在——这类错误现在会在 `node --test` 阶段就挂。
+
+#### ⑧ 版本适配收口：asar 里宿主包在 `app.asar/dsh/node_modules`（local.6 → local.7）
+
+④ 的根集只加了 `<res>/app.asar/node_modules`，但桌面真布局是：
+
+```
+resources/app.asar/dsh/package.json            → @deepseek-ai/dsh-desktop-runtime 0.2.2-rc.1
+resources/app.asar/dsh/node_modules/@deepseek-ai/*   → 331 个官方包真身（宿主实际加载的那套）
+resources/app.asar/node_modules/               → 存在，但不含宿主本体依赖
+```
+
+于是 `resolvePkg` 只能报“包不可解析”（`pkg`），报不出准确的“该版本无 `./list-agents` 导出”（`subpath`），宿主版本探测也会漏掉 0.2.2-rc.1。
+
+- 新增 `electronRoots(resourcesPath)`：逐 `app.asar` / `app` / `app.asar.unpacked` 扫子目录，`package.json.name` 以 `@deepseek-ai/dsh` 开头即视为宿主 bundle → 收 `<bundle>/node_modules`；再收 `<base>/node_modules/@deepseek-ai/dsh*/node_modules`；最后收 `<base>/node_modules`。**不硬编码目录名 `dsh`**，换布局不碎。
+- `candidateRoots` 改用 `electronRoots` 结果排最前；`host-version.js` 的资源通道同步换用（桌面宿主版本得以报 0.2.2-rc.1）。
+- **真实数据验证**（把 asar 里的真 package.json 抽到临时目录复刻布局，跑装机同源代码）：
+  `dsh-tool-subagent-control` → ok=true；`…/list-agents` → ok=false + subpathMissing=true；成因 `subpath`；对照片 `tool-subagent-control` 成因 null（不误伤）；`detectDshVersion` → 0.2.2-rc.1。
+- **UI（lib/client.js）**：`alignCount` 按 `alignable`；摘要「漂移 N（退避停用）/ 宿主不提供 N / 官方空 N / 表达式 N（已按平台求值 M）/ 护栏保留 N / 缺官方行 N（参照 X）」；按钮「对齐：退避停用 N 行（宿主不提供 X、官方停用/已移出/官方空 Y）· 护栏保留 Z 行不动」；确认框写明“连 disabled:false 也覆写”与推断出的参照预设；状态位四分「解析·启用 / 解析·停用 / 官方空·默认停用 / 基线未收录 / 解析·×（win32）/ 表达式·不可求值」（不再与徽章重复）；三档按钮对 dynamic 行置灰；删除按钮对 `baselineUncovered` 行也不给。
+- 未改动：R-COMPOSITION-DRIFT finding 仍只管覆盖内置预设（自定义预设的缺失/漂移走卡面 composition 视图上报，不进 findings，避免 `current`/`syncable` 语义扰动）；缺失行仍只报不自动补（基线表只存 id，无 id→包名映射）。
+- 测试：`tests/composition-truth-table.test.js` 重写为 12 例（四态 declared、真值表四档含“不给强制开例外”、两条护栏、`evalPlatformDisabled` 七形态、`inferRefPid` 三例、runToggle 对 dynamic 行零写盘）；新增 `tests/host-unavailable-and-preset-delete.test.js` 8 例（子路径拆解、`subPathExported` 四种 exports 形态、`resolvePkg` subpathMissing、`rowPkgMissing`/`rowUnavailableReason` 成因、`candidateRoots` Electron 基座优先级、`registryDefaults`、`runDeletePreset` 三道门 + 幂等 + dryRun）；`_stub-resolve.js` 支持“包体活、子路径死”注入；align / host-missing / resolve-legacy / row-toggle / classify 共 5 个旧用例文件按退避语义重写；实盘 dryRun 验证 7 预设：liangshen/simple-reply noop（护栏全部命中），standard-win 系只退避 codex/claude-code/ralph。**187 例全绿，lint 干净**。
+
 ## 0.8.2 (2026-11-06)
 宿主不提供行识别机制：可解析性并入行分类/对齐/跟随三条链路。
 

@@ -14,7 +14,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { resolvePkg, candidateRoots, pkgPart } from './pkg-resolve.js'
+import { resolvePkg, candidateRoots, electronRoots, pkgPart } from './pkg-resolve.js'
 import { compareSemver } from './tables/load.js'
 
 /** 依次收集的 DSH 包名（CLI 本体 → web-app → base，任一可读版本即候选）。 */
@@ -93,17 +93,22 @@ export function detectDshVersion({ resolve = resolvePkg, roots, resourcesPath = 
       if (v) add(v, `fs:${root}`, dir)
     }
   }
-  // 通道 3：Electron 运行时（desktop 形态真宿主在 app.asar 内，主进程 fs 已 asar patch）
-  if (resourcesPath) {
-    for (const base of [
-      path.join(resourcesPath, 'app.asar', 'node_modules'),
-      path.join(resourcesPath, 'app', 'node_modules'),
-      path.join(resourcesPath, 'app.asar.unpacked', 'node_modules'),
-    ]) {
+  // 通道 3：Electron 运行时（desktop 形态真宿主在 app.asar 内，主进程 fs 已 asar patch）。
+  // 根集走 electronRoots：桌面宿主的包在 `app.asar/dsh/node_modules/@deepseek-ai/*`（bundle 内层），
+  // 只扫 `app.asar/node_modules` 会漏掉真宿主那份版本。拿不到 resourcesPath → 空集，无副作用。
+  {
+    const eroots = (() => {
+      try {
+        return electronRoots(resourcesPath)
+      } catch {
+        return []
+      }
+    })()
+    for (const root of eroots) {
       for (const name of HOST_PKGS) {
-        const dir = path.join(base, ...pkgPart(name).split('/'))
+        const dir = path.join(root, ...pkgPart(name).split('/'))
         const v = readVersion(dir)
-        if (v) add(v, `electron:${base}`, dir)
+        if (v) add(v, `electron:${root}`, dir)
       }
     }
   }

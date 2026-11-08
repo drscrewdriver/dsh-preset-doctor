@@ -1,102 +1,133 @@
 /**
- * dsh-preset-doctor — composition 对齐规划（B：行级删除漂移行）。
+ * dsh-preset-doctor — composition 对齐规划（disable 退避版：只写 disabled，绝不删行）。
  *
- * 参考 = 当前运行版本的「标准模式」预设组合（baselineForVersion(currentVersion).presets[presetId]）。
- * 仅处理覆盖内置预设（standard/cordis/ptc/minimal）的用户声明；自定义 id 预设无基线，跳过。
+ * 真值表（2026-11-08 定案修订）：解析默认值只看「官方 true」（id 在参照默认集里）——
+ *  官方 true            → 跟随预设声明（无 disabled 键即启用；显式 disabled:true 即停用）
+ *  官方停用 / 已移出     → false，对齐退避为 disabled:true
+ *  官方空（无此 id 基准） → false，同上
+ *  宿主不提供（包死/bundle 禁用）→ false，同上（安全档优先）
+ * 一律退避，**不给强制开例外**：连 `disabled: false` 也覆写为 true（用户选定）。
  *
- * 处置：
- *  - 删除「漂移行」：用户有、当前基线无、但曾/将于其它版本基线出现的标准成员行（introduced/removed）。
- *  - 删除「宿主不提供行」（2026-11-06）：当前基线有、但引用包不可解析的行——
- *    留着它整条预设 never started（宿主实证），基线声明≠当前安装跑得起来；
- *    未注入 resolver 时不启用该档（保守旧行为）。
- *  - 保留「用户自定义行」：任何版本基线都没有的 id（无从判定，绝不删）。
- *  - 「缺失标准行」：当前基线有、用户无 —— 仅**报告**（自动补齐需基线存 id→包名映射，列为后续）。
+ * 三条不动的护栏：
+ *  - `!!js` 条件表达式行（如 `disabled: !!js process.platform === 'win32'`）绝不改写；
+ *  - 已显式 disabled:true 的行无改动（保持二次 noop 幂等）；
+ *  - id 未见于任何基线、但 name 属官方包/虚拟行（baselineUncovered，如 fs-local）→ 只报不动，
+ *    否则会把基线表（从 0.1.7 起）未收录的旧官方工具关掉。
  *
- * 行级删除经 row-edit.deleteItemEdit，区间外字节（注释/!!js/缩进）不动；嵌套去重防重叠。
+ * 参照集：内置预设→自身基线；自定义 id 预设→`inferRefPid` 按行集相似度推断的官方预设
+ * （写死 standard 会把从 minimal/ptc 迁移出的预设的能力行误当“官方停用”一律退避掉）。写盘一律走 makeStateEdit。
  */
-import { deleteItemEdit } from './row-edit.js'
-import { rowPkgMissing } from '../rules/composition-drift.js'
+import { makeStateEdit } from './row-edit.js'
+import { rowUnavailable, rowDeclaredState, rowIsThirdParty, inferRefPid } from '../rules/composition-drift.js'
 
 /** row 是否落在 preset 行范围内（含自身排除由调用方处理）。 */
 function within(row, preset) {
   return row.range && preset.range && row.range[0] >= preset.range[0] && row.range[1] <= preset.range[1]
 }
 
-/** 丢弃被另一编辑完全包含的嵌套编辑（只删最外层，防 spliceEdits 重叠抛错）。 */
+/** id 是否在任何版本、任何内置预设的基线里出现过。 */
+function seenInAnyBaseline(allBaselines, id) {
+  if (!id) return false
+  return (allBaselines || []).some((s) => Object.values(s.presets ?? {}).some((v) => Array.isArray(v) && v.includes(id)))
+}
+
+/**
+ * disable 退避处置：该行是否需要落盘写 disabled: true（与 classifyComposition 的 alignable 同式）。
+ * @param {object} row 声明行
+ * @param {{refRows?:Set<string>, allBaselines?:Array, resolvePkg?:Function, hostDisabled?:Set<string>}} ctx
+ *   refRows = 参照默认集（内置→自身基线；自定义→官方 standard）
+ * @returns {null|'unavailable'|'official-off'|'guarded-dynamic'|'guarded-uncovered'} 理由；null = 官方 true 行，不动
+ */
+export function rowOffDisposition(row, { refRows, allBaselines, resolvePkg, hostDisabled } = {}) {
+  const declared = rowDeclaredState(row)
+  if (declared === 'dynamic') return 'guarded-dynamic'
+  if (declared === 'true') return null // 已停用，无改动
+  if (rowUnavailable(row, resolvePkg, hostDisabled)) return 'unavailable'
+  const inRef = refRows instanceof Set ? refRows.has(row.id) : false
+  if (inRef) return null // 官方 true → 跟随预设声明
+  // 官方停用/已移出/官方空：退避为 disabled:true；基线未收录的官方包/虚拟行由护栏挡住
+  if (!seenInAnyBaseline(allBaselines, row.id) && !rowIsThirdParty(row)) return 'guarded-uncovered'
+  return 'official-off'
+}
+
+/**
+ * 停用一行的编辑：取 AST 节点写 disabled: true。
+ * @returns 编辑 | null（已停用，或拿不到节点时保守不动）
+ */
+function offEditFor(text, row) {
+  const node = row?.node ?? row
+  return makeStateEdit(text, node, true)
+}
+
+/** 丢弃被另一编辑完全包含的嵌套编辑（防 spliceEdits 重叠抛错）。 */
 function dedupNested(edits) {
   return edits.filter(
     (e) => !edits.some((o) => o !== e && o.start <= e.start && e.end <= o.end && (o.start < e.start || e.end < o.end)),
   )
 }
 
-/**
- * 计算某覆盖预设的对齐编辑与统计。
- * @param {{text:string,presetRows:Array,rows:Array}} src
- * @param {{presetId:string,range:[number,number]}} presetRow
- * @param {{baseline:{version:string,presets:Record<string,string[]>}, allBaselines:Array, resolvePkg?:Function}} ctx
- * @returns {{edits:Array, removed:string[], removedHostMissing:string[], missing:string[], baselineVersion:string}}
- */
-export function planAlignForPreset(src, presetRow, { baseline, allBaselines, resolvePkg } = {}) {
-  const pid = presetRow.presetId
-  const empty = { edits: [], removed: [], removedHostMissing: [], missing: [], baselineVersion: baseline?.version ?? '' }
-  if (!pid || !baseline || !Array.isArray(allBaselines)) return empty
-  const baseRows = new Set(baseline.presets?.[pid] || [])
-  if (baseRows.size === 0) return empty // 该预设无基线（非内置）→ 不动
-  const union = new Set(allBaselines.flatMap((s) => s.presets?.[pid] || []))
+/** 统计分桶容器：removed=本次新落盘；removedHostMissing/disabledOfficialOff=理由细分；guarded=护栏不动。 */
+function buckets(baselineVersion, missingRef) {
+  return {
+    edits: [], removed: [], removedHostMissing: [], disabledOfficialOff: [],
+    guarded: [], missing: [], missingRef, baselineVersion,
+  }
+}
 
-  const userRows = src.rows.filter((r) => r !== presetRow && within(r, presetRow) && r.id)
-  const userSet = new Set(userRows.map((r) => r.id))
-
-  const rawEdits = []
-  const removed = []
-  const removedHostMissing = []
-  for (const row of userRows) {
-    if (!baseRows.has(row.id) && !union.has(row.id)) continue // 任何基线都没有 → 用户自定义，保留
-    // 当前基线有但包不可解析：宿主 never started，删（2026-11-06）
-    if (baseRows.has(row.id) && rowPkgMissing(row, resolvePkg)) {
-      rawEdits.push(deleteItemEdit(src.text, row))
-      removed.push(row.id)
-      removedHostMissing.push(row.id)
+/** 逐行落盘：把 disposition 结果计入桶并生成编辑。 */
+function collect(src, rows, ctx, out) {
+  for (const row of rows) {
+    const why = rowOffDisposition(row, ctx)
+    if (why === null || why === 'guarded-dynamic' || why === 'guarded-uncovered') {
+      if (why) out.guarded.push(row.id)
       continue
     }
-    if (!baseRows.has(row.id)) {
-      rawEdits.push(deleteItemEdit(src.text, row))
-      removed.push(row.id)
-    }
+    const edit = offEditFor(src.text, row)
+    if (!edit) continue // 已处停用态：无实际改动（二次 noop 幂等靠此）
+    out.edits.push(edit)
+    out.removed.push(row.id)
+    if (why === 'unavailable') out.removedHostMissing.push(row.id)
+    else out.disabledOfficialOff.push(row.id)
   }
-
-  const wrapper = `preset-${pid}`
-  // 宿主不提供的行已被删除，不再计入「缺失标准行」（否则报缺又补不回，自相矛盾）
-  const missing = [...baseRows].filter((id) => !userSet.has(id) && id !== wrapper && !removedHostMissing.includes(id))
-
-  return { edits: dedupNested(rawEdits), removed, removedHostMissing, missing, baselineVersion: baseline.version }
 }
 
 /**
- * 自定义 id 预设的对齐（无自身基线）：以「当前版本默认预设」为参照——
- * 行集参照 = 当前基线快照里**全部**内置预设成员的并集（活的官方行）。
- * 删：曾是任一版本任一内置预设成员、但当前版本已彻底不活的行（死标准成员）；
- * 留：任何基线都没出现过的行（用户自定义/第三方，无从判定绝不删）。
- * 不报 missing：自定义预设本就是用户自选子集，无「补齐标准行」语义。
+ * 覆盖内置预设（standard/cordis/ptc/minimal）的对齐规划。
+ * @param {{text:string,presetRows:Array,rows:Array}} src
+ * @param {{presetId:string,range:[number,number]}} presetRow
+ * @param {{baseline:{version:string,presets:Record<string,string[]>}, allBaselines:Array, resolvePkg?:Function, hostDisabled?:Set<string>}} ctx
  */
-export function planAlignForCustomPreset(src, presetRow, { baseline, allBaselines, resolvePkg } = {}) {
+export function planAlignForPreset(src, presetRow, { baseline, allBaselines, resolvePkg, hostDisabled } = {}) {
   const pid = presetRow.presetId
-  const empty = { edits: [], removed: [], missing: [], baselineVersion: baseline?.version ?? '' }
-  if (!pid || !baseline || !Array.isArray(allBaselines)) return empty
-  const currentUnion = new Set(Object.values(baseline.presets ?? {}).flatMap((v) => (Array.isArray(v) ? v : [])))
-  const histUnion = new Set(
-    allBaselines.flatMap((s) => Object.values(s.presets ?? {}).flatMap((v) => (Array.isArray(v) ? v : []))),
-  )
+  const out = buckets(baseline?.version ?? '', pid ?? '')
+  if (!pid || !baseline || !Array.isArray(allBaselines)) return out
+  const baseRows = new Set(baseline.presets?.[pid] || [])
+  if (baseRows.size === 0) return out // 非内置 id → 走 planAlignForCustomPreset
+  const userRows = src.rows.filter((r) => r !== presetRow && within(r, presetRow) && r.id)
+  collect(src, userRows, { refRows: baseRows, allBaselines, resolvePkg, hostDisabled }, out)
   const wrapper = `preset-${pid}`
-  const rawEdits = []
-  const removed = []
-  for (const row of src.rows) {
-    if (row === presetRow || !within(row, presetRow) || !row.id) continue
-    if (row.id === wrapper || !histUnion.has(row.id)) continue
-    // 当前版本仍活且包可解析 → 保留；否则删（死标准成员 / 宿主不提供）
-    if (currentUnion.has(row.id) && !rowPkgMissing(row, resolvePkg)) continue
-    rawEdits.push(deleteItemEdit(src.text, row))
-    removed.push(row.id)
-  }
-  return { edits: dedupNested(rawEdits), removed, missing: [], baselineVersion: baseline.version }
+  const userSet = new Set(userRows.map((r) => r.id))
+  out.missing = [...baseRows].filter((id) => !userSet.has(id) && id !== wrapper)
+  out.edits = dedupNested(out.edits)
+  return out
+}
+
+/**
+ * 自定义 id 预设的对齐规划：参照集由 `inferRefPid` 推断（而不是写死 standard）；
+ * 处置与内置预设同走 disable 退避；missing 以推断出的参照预设为报。同样只报不补。
+ */
+export function planAlignForCustomPreset(src, presetRow, { baseline, allBaselines, resolvePkg, hostDisabled } = {}) {
+  const pid = presetRow.presetId
+  const ids = src.rows.filter((r) => r !== presetRow && within(r, presetRow) && r.id).map((r) => r.id)
+  const refPid = inferRefPid(ids, baseline)
+  const out = buckets(baseline?.version ?? '', refPid)
+  if (!pid || !baseline || !Array.isArray(allBaselines)) return out
+  const refRows = new Set(baseline.presets?.[refPid] || [])
+  const wrapper = `preset-${pid}`
+  const userRows = src.rows.filter((r) => r !== presetRow && within(r, presetRow) && r.id && r.id !== wrapper)
+  collect(src, userRows, { refRows, allBaselines, resolvePkg, hostDisabled }, out)
+  const userSet = new Set(userRows.map((r) => r.id))
+  out.missing = [...refRows].filter((id) => id !== `preset-${refPid}` && id !== wrapper && !userSet.has(id))
+  out.edits = dedupNested(out.edits)
+  return out
 }

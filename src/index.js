@@ -12,13 +12,14 @@
  */
 import z from '@deepseek-ai/schemastery'
 import { resolveDshHome } from './paths.js'
+import path from 'node:path'
 import { scanAll } from './scan.js'
-import { applyFixes, runAlign as alignPreset, runToggle as toggleRow, runResolveLegacy } from './fix/index.js'
+import { applyFixes, runAlign as alignPreset, runToggle as toggleRow, runDelete as deleteRow, runDeletePreset as deletePresetRow, runResolveLegacy } from './fix/index.js'
 import { defaultTimestamp } from './fix/core.js'
 import { summarize, renderText, renderJson, collectPresets, eraCatalogFor, DISCLAIMER } from './report.js'
 import { registerPresetDoctorCommand } from './commands.js'
 import { classifyComposition } from './rules/composition-drift.js'
-import { resolvePkg as realResolvePkg } from './pkg-resolve.js'
+import { resolvePkg as realResolvePkg, collectBundleDisabledIds } from './pkg-resolve.js'
 import { baselineForVersion, loadBaseline } from './tables/load.js'
 import { installSettingsWaist } from './settings-waist.js'
 import { makeSettingsBridge } from './bridge.js'
@@ -111,6 +112,19 @@ export function apply(ctx, config = {}) {
   // ── 卡片化 UI 数据层：启动扫描缓存 + 单预设同步（桥 list/sync 消费）──
   let lastScan = null
 
+  /** 源文件所属 profile 根（<home>/profiles/<name>）→ bundle 禁用集；全局层/未知层→空集。 */
+  function hostDisabledFor(srcFile, home) {
+    try {
+      const rel = path.relative(home, srcFile)
+      if (!rel || rel.startsWith('..')) return new Set()
+      const parts = rel.split(path.sep)
+      if (parts[0] !== 'profiles' || parts.length < 3) return new Set() // 全局 patch 无 bundle 层
+      return collectBundleDisabledIds(path.join(home, 'profiles', parts[1]))
+    } catch {
+      return new Set()
+    }
+  }
+
   /** list 路由数据：默认走启动缓存（秒开），fresh 才重扫。 */
   function getSummary({ fresh = false } = {}) {
     if (fresh || !lastScan) runScanFix({ mode: 'scan' })
@@ -121,12 +135,17 @@ export function apply(ctx, config = {}) {
     const baseline = baselineForVersion(summary.detectedVersion)
     const allBaselines = loadBaseline()
     const composition = []
+    const disabledCache = new Map() // profileRoot → Set，多预设共享同一 profile 只读一次
     for (const src of scan.sources || []) {
       for (const presetRow of src.presetRows || []) {
         if (!presetRow.presetId) continue
+        if (!disabledCache.has(src.file)) disabledCache.set(src.file, hostDisabledFor(src.file, home))
         composition.push({
           file: src.file,
-          ...classifyComposition(src, presetRow, { baseline, allBaselines, currentVersion: summary.detectedVersion, resolvePkg: rowResolver }),
+          ...classifyComposition(src, presetRow, {
+            baseline, allBaselines, currentVersion: summary.detectedVersion,
+            resolvePkg: rowResolver, hostDisabled: disabledCache.get(src.file),
+          }),
         })
       }
     }
@@ -173,18 +192,45 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  /** composition 对齐（桥 align 路由）：重扫取最新源 → 行级删漂移行 + 宿主不提供行（confirm 已在桥门）。 */
+  /** composition 对齐（桥 align 路由）：重扫取最新源 → 行级停用漂移行 + 宿主不提供行（只写 disabled:true，不删行；confirm 已在桥门）。 */
   function runAlignAction({ file, presetId, dryRun } = {}) {
     const cfg = current()
-    const scan = scanAll(scanOpts(cfg))
-    return alignPreset(scan, { file, presetId, dryRun: dryRun === true, ts: defaultTimestamp(), resolvePkg: rowResolver })
+    const opts = scanOpts(cfg)
+    const scan = scanAll(opts)
+    return alignPreset(scan, {
+      file, presetId, dryRun: dryRun === true, ts: defaultTimestamp(),
+      resolvePkg: rowResolver, hostDisabled: hostDisabledFor(file, opts.home),
+    })
   }
 
   /** 行级三档 toggle（桥 toggle 路由）：重扫 → 置行 跟随/开启/关闭（confirm 双门）。 */
   function runToggleAction({ file, presetId, rowId, mode, disabled, confirm, dryRun } = {}) {
     const cfg = current()
+    const opts = scanOpts(cfg)
+    const scan = scanAll(opts)
+    return toggleRow(scan, {
+      file, presetId, rowId, mode, disabled, confirm: confirm === true, dryRun: dryRun === true,
+      ts: defaultTimestamp(), resolvePkg: rowResolver, hostDisabled: hostDisabledFor(file, opts.home),
+    })
+  }
+
+  /** 行级删除（桥 delete 路由）：重扫 → 移除一条自定义声明行（confirm 硬门）。 */
+  function runDeleteAction({ file, presetId, rowId, dryRun } = {}) {
+    const cfg = current()
     const scan = scanAll(scanOpts(cfg))
-    return toggleRow(scan, { file, presetId, rowId, mode, disabled, confirm: confirm === true, dryRun: dryRun === true, ts: defaultTimestamp(), resolvePkg: rowResolver })
+    return deleteRow(scan, {
+      file, presetId, rowId, confirm: true, dryRun: dryRun === true, ts: defaultTimestamp(),
+    })
+  }
+
+  /** 预设级删除（桥 delete-preset 路由）：重扫 → 整块移除一条预设声明（confirm 硬门 + 默认预设护栏）。 */
+  function runDeletePresetAction({ file, presetId, allowDefault, dryRun } = {}) {
+    const cfg = current()
+    const scan = scanAll(scanOpts(cfg))
+    return deletePresetRow(scan, {
+      file, presetId, confirm: true, allowDefault: allowDefault === true, dryRun: dryRun === true,
+      ts: defaultTimestamp(),
+    })
   }
 
   /** 遗留目录冲突的授权转写收尾（桥 resolve-legacy 路由）：重扫 → 对齐声明到当前版本默认预设参照 + 归档目录（confirm 硬门 + .bak 备份）。 */
@@ -208,7 +254,7 @@ export function apply(ctx, config = {}) {
   // ── 设置桥（client 卡数据层；webServer 缺席的线自动 pending 不阻塞）──
   ctx.inject(['webServer', 'settings'], (sctx) => {
     sctx.effect(() => {
-      const routes = makeSettingsBridge({ settings: sctx.settings, ns: name, resolveConfig, context: { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction, runResolveLegacy: runResolveLegacyAction } })
+      const routes = makeSettingsBridge({ settings: sctx.settings, ns: name, resolveConfig, context: { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction, runDelete: runDeleteAction, runDeletePreset: runDeletePresetAction, runResolveLegacy: runResolveLegacyAction } })
       const disposers = routes.map((route) => sctx.webServer.register(route))
       return () => {
         for (const dispose of disposers) dispose()
@@ -236,5 +282,5 @@ export function apply(ctx, config = {}) {
   ctx.effect(() => registerPresetDoctorCommand(ctx, (opts) => runScanFix(opts)), 'preset-manager: command register')
 
   // 供测试与高级宿主直接使用（宿主 apply 返回值照常忽略）
-  return { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction, runResolveLegacy: runResolveLegacyAction }
+  return { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction, runDelete: runDeleteAction, runDeletePreset: runDeletePresetAction, runResolveLegacy: runResolveLegacyAction }
 }

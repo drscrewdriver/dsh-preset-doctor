@@ -18,10 +18,34 @@ import path from 'node:path'
 import builtin from './changes.json' with { type: 'json' }
 import branchesBuiltin from './branches.json' with { type: 'json' }
 import baselineBuiltin from './preset-baseline.json' with { type: 'json' }
+import componentMapBuiltin from './component-map.json' with { type: 'json' }
 
 export const BUILTIN_CHANGES = builtin
 export const BUILTIN_BRANCHES = branchesBuiltin.branches
 export const BUILTIN_BASELINE = baselineBuiltin.snapshots ?? []
+export const BUILTIN_COMPONENT_MAP = componentMapBuiltin
+
+/**
+ * 组件地图（知识表，**不是运行时可用性判据**）：id → 包名/子路径/分级 + 逐版本导出演进。
+ * 判「行能不能起」永远靠运行时探真宿主（pkg-resolve 的 resolvePkg + 子路径检查）；
+ * 这张表只补运行时拿不到的东西：缺行该写哪个包、组件分级、某版本是否有该导出。
+ * 由 tools/component-map.mjs 生成（repo / CLI 安装 / Desktop asar 三源合并）。
+ */
+export function loadComponentMap() {
+  return BUILTIN_COMPONENT_MAP
+}
+
+/** 行 id → 组件记录（{ pkg, sub, cat, presets, avail }）；无此 id → undefined。 */
+export function componentFor(rowId) {
+  return BUILTIN_COMPONENT_MAP?.rows?.[String(rowId)]
+}
+
+/** 行 id → 官方包声明名（带子路径）；未知 id 返回 undefined。 */
+export function componentNameOf(rowId) {
+  const rec = componentFor(rowId)
+  if (!rec?.pkg) return undefined
+  return rec.sub ? `${rec.pkg}/${rec.sub}` : rec.pkg
+}
 
 /** 用户覆盖表位置。 */
 export function userTablePath(home) {

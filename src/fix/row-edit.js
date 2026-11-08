@@ -56,7 +56,7 @@ export function deleteItemEdit(text, item, rule = 'R-COMPOSITION-DRIFT') {
 
 /**
  * 给一个 item 追加 `disabled: true` 子键（零宽插入到其首行行尾之后）。
- * 若该 item 已有 disabled 键则返回 null（幂等：调用方据此跳过）。
+ * 若该 item 已有 disabled 键（含 !!js 表达式）则返回 null——写第二个同名键是非法 YAML。
  */
 export function makeDisabledEdit(text, item) {
   if (typeof item.get === 'function' && item.get('disabled', true) != null) return null
@@ -82,4 +82,50 @@ export function makeEnableEdit(text, item) {
   const start = lineStartOf(text, vs)
   const end = blockEndOf(text, valNode.range[1])
   return { start, end, text: '', rule: 'R-TOGGLE' }
+}
+
+/**
+ * 把一行的 `disabled` 子键置为指定值而不删行（2026-11-08 三档载体定案）：
+ *  - 无 `disabled` 键 → 追加 `disabled: <value>`
+ *  - 有键且值已等于 value → null（幂等：调用方据此不计入本次改动）
+ *  - 有键但值相反 → 就地把值节点改写
+ *  - 值是 `!!js` 表达式等非布尔量（dynamic）→ null（改写会抹掉跨平台条件，补第二个键则非法 YAML）
+ * 三档语义：无键=跟随（按解析默认）、`disabled: false`=强制开、`disabled: true`=强制关。
+ * @param {string} text 全文
+ * @param {object} item seq item 的 YAMLMap 节点
+ * @param {boolean} value 目标值
+ * @returns 编辑或 null
+ */
+export function makeStateEdit(text, item, value) {
+  if (!item || typeof item.get !== 'function') return null
+  const valNode = item.get('disabled', true)
+  const want = value ? 'true' : 'false'
+  if (valNode == null) {
+    if (!value) {
+      // 强制开且尚无键：插入 disabled: false（不能复用 makeDisabledEdit，它恒写 true）
+      const [s] = item.range
+      const anchor = lineEndInclNewline(text, s)
+      const indent = leadingWs(text, lineStartOf(text, s)) + '  '
+      return { start: anchor, end: anchor, text: `${indent}disabled: ${want}${detectEolOf(text)}`, rule: 'R-TOGGLE' }
+    }
+    return makeDisabledEdit(text, item)
+  }
+  const raw = typeof valNode === 'object' && 'value' in valNode ? valNode.value : valNode
+  const cur = raw === true || raw === 'true'
+  const isFalse = raw === false || raw === 'false'
+  if (!cur && !isFalse) return null // dynamic（!!js 表达式等）：拒绝覆写
+  if (cur === value) return null
+  if (!valNode.range) return null
+  const [vs, ve] = valNode.range
+  return { start: vs, end: ve, text: want, rule: 'R-TOGGLE' }
+}
+
+/** 停用一行（写 `disabled: true`）——makeStateEdit 的 off 档薄封装。 */
+export function makeOffEdit(text, item) {
+  return makeStateEdit(text, item, true)
+}
+
+/** 强制开启一行（显式写 `disabled: false`，区别于「跟随」的删键）。 */
+export function makeOnEdit(text, item) {
+  return makeStateEdit(text, item, false)
 }

@@ -1,13 +1,14 @@
 /**
  * 测试桩：模拟 DSH 运行时的包解析。
- * - `dead` 名单里的包判为不可解析（内置表里的历史旧名，在 0.1.7+ 安装里已死）
+ * - `dead` 名单里的包名判为不可解析；**写完整子路径名**（`@scope/pkg/sub`）则仅该导出不可用
+ *   （模拟“包体在、当前宿主版本无此子路径导出”的版本差异），**写包体名**则连子路径一起死。
  * - 其余全部可解析（官方 27 包基线在当前安装都存在）
  * 这正是门禁的真实语义：R-PKG-RENAMED 只在「旧名已死 + 新名存在」时触发。
  */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { resolvePkg as realResolve } from '../src/pkg-resolve.js'
+import { resolvePkg as realResolve, pkgPart, subPathOf } from '../src/pkg-resolve.js'
 
 export const DSH_DEAD_DEFAULT = ['@deepseek-ai/dsh-workflow-worker-thread']
 
@@ -15,8 +16,13 @@ export function makeDshResolve({ dead = DSH_DEAD_DEFAULT, alive = [] } = {}) {
   const deadSet = new Set(dead)
   const aliveSet = new Set(alive)
   return (name) => {
-    if (deadSet.has(name)) return { ok: false, resolvedVia: 'stub-dead', resolvedPath: '' }
-    if (aliveSet.has(name)) return { ok: true, resolvedVia: 'stub-alive', resolvedPath: '' }
+    // 精确名命中：子路径行单独死（subpathMissing）；包体名命中：整包死
+    if (deadSet.has(name)) {
+      return { ok: false, resolvedVia: 'stub-dead', resolvedPath: '', subpathMissing: Boolean(subPathOf(name)) }
+    }
+    const body = pkgPart(name)
+    if (body !== name && deadSet.has(body)) return { ok: false, resolvedVia: 'stub-dead-pkg', resolvedPath: '' }
+    if (aliveSet.has(name) || aliveSet.has(body)) return { ok: true, resolvedVia: 'stub-alive', resolvedPath: '' }
     return { ok: true, resolvedVia: 'stub', resolvedPath: '' }
   }
 }

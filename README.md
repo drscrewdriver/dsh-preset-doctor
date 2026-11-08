@@ -81,6 +81,48 @@ npm run table-build -- --repo <dsh 源码仓库> --from dsh-v0.1.5-rc.3 --to dsh
 - **提案需人工核对 commit 后再追加进 `src/tables/changes.json`**——变更日志是信任锚点，追加永远是人工动作
 - config-key 类事件（如 persona 键改名）无法从预设 diff 唯一推导（语义歧义），仍需人工考古 + commit 实证
 
+## 升级观测清单：预设「存在哪」会随版本变
+
+**会变，而且变三样**：落点（哪个文件/目录）、格式（目录 → 声明式 patch）、内容（官方行集与包的导出）。升级宿主后请按下面走一遍。
+
+### 三代落点（doctor 实际扫的路径）
+
+| 世代 | 用户预设落点 | 格式 |
+|---|---|---|
+| ≤ 0.1.6（含 0.1.1/0.1.2/0.1.5） | `$DSH_HOME/.agent-presets/<id>/`（`agent.cordis.yml` + `preset.yml`） | 目录即本体 |
+| ≥ 0.1.7 | `$DSH_HOME/cordis.patch.yml`（home 层，对所有 profile 生效） | 声明式 patch |
+| ≥ 0.2.0（多 profile） | `$DSH_HOME/profiles/<name>/cordis.patch.yml`（`desktop` / `web` / `tauri` 可并存） | 声明式 patch |
+
+三个坑，按踩坑频率排序：
+
+1. **改错 profile**：`desktop` 与 `web` 各有一份 `cordis.patch.yml`，“改了不生效”多半是改到了没在跑的那份。卡面卡片的数据源就是当前进程实际读的那份，以它为准。
+2. **旧目录还在**：`.agent-presets/` 残留 + profile patch 同时存在时，两边都声明同名预设 → 旧的会顶掉新的（`R-LEGACY-CONFLICT`）。先合并再归档，不要手动删目录了事。
+3. **官方 shipped 预设是只读的**，位置随打包形态变：仓库 `packages/bundle/web-app/presets/*.patch.yml`；CLI 安装 `…/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app/presets/`；桌面 `…/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-web-app/presets/`（asar 内的那份才是桌面真宿主用的）。**永远不要把它们当自己的落点去改**——自定义走 profile 层覆盖。
+
+### 升级后五步
+
+| # | 看什么 | 怎么查 |
+|---|---|---|
+| 1 | 宿主版本 + 生效 profile | 卡片顶部 `detectedVersion` 与来源（`import.meta.resolve` / `fs:` / `electron:`）；命令 `dsh --version` |
+| 2 | 三处落点是否还在 | `/preset-doctor scan` 报告顶部有「扫描源 N 处」，逐行 `[home] / [profile/<名>] / [legacy-dir]` 带文件与行数；缺哪层一目了然 |
+| 3 | 语法是否还合 | 同一次 `scan` 的 findings：`0 findings` 才说明落点与语法都对；出现 `R-LEGACY-*` = 还停在旧落点 |
+| 4 | 组件是否还在 | 卡面行徽章：新出现「宿主不提供」= 该版本删了包或子路径。实例：`0.2.2-rc.1` 拿掉了 `dsh-tool-subagent-control/list-agents`（`0.2.1-rc.5` 还有） |
+| 5 | 官方组合是否漂移 | 卡面「缺官方行」会按参照预设列出少的行并标出该写哪个包，例：`+time-context` `+tool-schedule`、`-tool-subagent-codex` `-tool-ralph` |
+
+其中 2~5 全自动（启动扫描 + 卡片），1 与「官方 shipped 在哪」需要人看一眼。
+
+### 维护者：扒全组件地图
+
+```bash
+node tools/component-map.mjs                 # 三源合并 → src/tables/component-map.json
+node tools/component-map.mjs --print         # 同时逐行打表
+node tools/component-map.mjs --no-repo --no-asar   # 只扫 CLI 安装
+```
+
+- 三源：`deepseek-harness` 源码树、CLI 全局安装 bundle、Desktop `app.asar`（手工解 asar 头，不依赖 Electron）
+- 产物：`id → 包名/子路径 + 分级 + 逐版本 avail`（例：`list-agents` = `0.2.1-rc.5 ✓ / 0.2.2-rc.1 ✗`）
+- **它不是可用性判据**：行能不能起仍由运行时探真（`resolvePkg` + 读该包 `exports` 判子路径），地图只供缺行提示、组件分级与跨版本对照
+
 ## 写入安全契约
 
 
@@ -92,22 +134,25 @@ npm run table-build -- --repo <dsh 源码仓库> --from dsh-v0.1.5-rc.3 --to dsh
 
 ## 使用
 
-**兼容性范围**：单一 `0.6.1` 服务全部宿主主线——适配分支在运行时按宿主版本自选（见上文「适配分支」），无 per-line 代码分叉。`engines.dsh` 与 renderer peer `@deepseek-ai/dsh-client-ui-renderer` 双清单同串、逐 rc 精确枚举（无区间/caret）：`0.1.0-rc.2 || 0.1.0-rc.3 || 0.1.0-rc.6 || 0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.2-rc.1 || 0.1.5-rc.1 || 0.1.5-rc.2 || 0.1.5-rc.3 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.1 || 0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.4 || 0.2.1-rc.5`；peer `@deepseek-ai/cordis` 为 `>=4.0.1 <5`。**宿主保留场冒烟实测（2026-10-05，0.4.1）**：0.1.0-rc.8 / 0.1.1-rc.2 / 0.1.2-rc.1 / 0.1.5-rc.3 / 0.1.7-rc.2 五线启动全绿且插件 entry 激活（栽植测试自动修复 + `.bak` 坐实）；0.2.0 走桌面版实测通道。工程约束：`src/` **禁止 import cordis**（profile 安装会解析插件私有大版本副本，与宿主形成双实例；本插件刻意只依赖 schemastery）。按宿主线选 dist-tag 安装（截至 2026-10-05；0.4.1 未发布 npm 前以 tgz 安装）：
+**兼容性范围**：单一 `0.8.x` 服务全部宿主主线——适配分支在运行时按宿主版本自选（见上文「适配分支」），无 per-line 代码分叉。`engines.dsh` 与 renderer peer `@deepseek-ai/dsh-client-ui-renderer` 双清单同串、逐 rc 精确枚举（无区间/caret）：`0.1.0-rc.2 || 0.1.0-rc.3 || 0.1.0-rc.6 || 0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.1 || 0.1.1-rc.2 || 0.1.2-rc.1 || 0.1.5-rc.1 || 0.1.5-rc.2 || 0.1.5-rc.3 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.1 || 0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.4 || 0.2.1-rc.5 || 0.2.2-rc.1`；peer `@deepseek-ai/cordis` 为 `>=4.0.1 <5`。**宿主保留场冒烟实测（2026-10-05，0.4.1）**：0.1.0-rc.8 / 0.1.1-rc.2 / 0.1.2-rc.1 / 0.1.5-rc.3 / 0.1.7-rc.2 五线启动全绿且插件 entry 激活（栽植测试自动修复 + `.bak` 坐实）；0.2.0 走桌面版实测通道。工程约束：`src/` **禁止 import cordis**（profile 安装会解析插件私有大版本副本，与宿主形成双实例；本插件刻意只依赖 schemastery）。按宿主线选 dist-tag 安装（截至 2026-10-05；0.4.1 未发布 npm 前以 tgz 安装）：
 
 | DSH 宿主 | 本插件版本 | 安装 dist-tag |
 |---|---|---|
-| 0.2.0 | 0.4.1（latest） | `dsh-0.2.0` |
-| 0.1.7 | 0.4.1 | `dsh-0.1.7` |
-| 0.1.5 | 0.4.1 | `dsh-0.1.5` |
-| 0.1.2 | 0.4.1 | `dsh-0.1.2` |
-| 0.1.1 及更早 | 0.4.1 | `dsh-0.1.1` |
+| 0.2.2 | 见 `package.json` | 暂以 tgz（`0.8.x-local.N`）安装 |
+| 0.2.1 / 0.2.0 | 见 `package.json` | `dsh-0.2.0` |
+| 0.1.7 | 见 `package.json` | `dsh-0.1.7` |
+| 0.1.5 | 见 `package.json` | `dsh-0.1.5` |
+| 0.1.2 | 见 `package.json` | `dsh-0.1.2` |
+| 0.1.1 及更早 | 见 `package.json` | `dsh-0.1.1` |
+
+> 上表版本号只描述 dist-tag 映射关系；**具体版本以仓库 `package.json` 为准**（下方冒烟记录里的 0.4.1 为历史发布快照）。
 
 ```bash
-npm install -g dsh-preset-doctor            # latest（当前即 0.4.0）
+npm install -g dsh-preset-doctor            # latest（以 npm 实际发布为准）
 dsh plugin add dsh-preset-doctor@dsh-0.2.0  # 按宿主线选 tag：dsh-0.1.7 / dsh-0.1.5 / dsh-0.1.2 / dsh-0.1.1
 ```
 
-装载后（约 1 秒后）自动扫描 `$DSH_HOME/cordis.patch.yml`、`profiles/<name>/cordis.patch.yml` 与遗留 `.agent-presets/` 目录，修复结果与报告输出到日志。
+装载后（约 1 秒后）自动扫描 `$DSH_HOME/cordis.patch.yml`、`profiles/<name>/cordis.patch.yml` 与遗留 `.agent-presets/` 目录，修复结果与报告输出到日志。**宿主升级后先对照「升级观测清单」走一遍**（预设落点与官方组件都会随版本变）。
 
 会话内可随时手动触发：
 

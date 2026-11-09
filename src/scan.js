@@ -19,6 +19,7 @@ import { checkLegacyDirs } from './rules/legacy.js'
 import { checkDupIds } from './rules/dup-id.js'
 import { checkShadowedIds } from './rules/shadow.js'
 import { checkCompositionDrift } from './rules/composition-drift.js'
+import { checkInjectorRows, checkUnwiredPromptDirs } from './rules/prompt-injection.js'
 import { loadTables, branchById, branchForVersion, loadBranches, loadBaseline, baselineForVersion } from './tables/load.js'
 import { detectDshVersion } from './host-version.js'
 
@@ -335,6 +336,23 @@ export function scanAll({ home, scanProfiles = true, migrateLegacy = true, resol
   }
   findings.push(...checkDupIds(sources))
   findings.push(...checkShadowedIds(sources, resolvePkg ? { resolvePkg } : {}))
+  // R-INJECT-*：预设里的提示词注入（dsh-preset-studio 结构：`注入/*.md` + 一行 injector）
+  // 逐条校验 frontmatter 格式，并把读到的条目整理成清单（promptDirs）供报告与卡面展示。
+  // 只读：除 BOM 外不改写用户提示词。
+  const promptDirs = []
+  const wiredDirs = []
+  for (const src of sources) {
+    const prompt = checkInjectorRows(src)
+    findings.push(...prompt.findings)
+    promptDirs.push(...prompt.inventories)
+    for (const inv of prompt.inventories) if (inv.wired) wiredDirs.push(inv.dir)
+  }
+  if (home) {
+    // studio 默认根（~/.dsh/presets/<id>/注入）：写了注入却没接投递器行 = 改了没反应
+    const unwired = checkUnwiredPromptDirs(home, wiredDirs)
+    findings.push(...unwired.findings)
+    promptDirs.push(...unwired.inventories)
+  }
   // R-COMPOSITION-DRIFT：用户覆盖内置预设的行集 vs 运行版本基线（仅声明式时代有基线）
   findings.push(
     ...checkCompositionDrift(sources, {
@@ -359,5 +377,5 @@ export function scanAll({ home, scanProfiles = true, migrateLegacy = true, resol
       }
     }
   }
-  return { home, sources, findings, tables, warnings, branch: active, detectedVersion: dshVersion ?? detected, detectedVia: det?.via, detectedPath: det?.path }
+  return { home, sources, findings, promptDirs, tables, warnings, branch: active, detectedVersion: dshVersion ?? detected, detectedVia: det?.via, detectedPath: det?.path }
 }

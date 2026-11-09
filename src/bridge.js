@@ -221,6 +221,27 @@ export function makeSettingsBridge({ settings, ns, resolveConfig, context } = {}
       }
     },
 
+    /** 提示词就地编辑：改写某个提示词值（preset 内某行的 prefix/section/description…）。body {file,presetId,rowId,key,text,confirm:true}。 */
+    async promptWrite(request) {
+      if (typeof ext.runPromptWrite !== 'function') {
+        return { ok: false, code: 'unavailable', message: 'prompt-write provider not wired' }
+      }
+      if (request === null || typeof request !== 'object'
+        || typeof request.file !== 'string' || typeof request.presetId !== 'string'
+        || typeof request.rowId !== 'string' || typeof request.key !== 'string'
+        || typeof request.text !== 'string') {
+        return { ok: false, code: 'prompt-write-rejected', message: 'malformed prompt-write request (file+presetId+rowId+key+text required)' }
+      }
+      if (request.confirm !== true) {
+        return { ok: false, code: 'prompt-write-rejected', message: '写盘需显式确认 confirm:true' }
+      }
+      try {
+        return { ok: true, value: ext.runPromptWrite(request) }
+      } catch (error) {
+        return { ok: false, code: 'internal', message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
     /** 遗留目录冲突的授权转写收尾（对齐声明 + 归档目录）。body {key, confirm:true}。 */
     async resolveLegacy(request) {
       if (typeof ext.runResolveLegacy !== 'function') {
@@ -338,6 +359,19 @@ export function makeSettingsBridge({ settings, ns, resolveConfig, context } = {}
           return
         }
         writeJson(res, 200, await handlers.deletePreset(body))
+      },
+    },
+    {
+      kind: 'exact',
+      path: `${BRIDGE_PREFIX}/prompt-write`,
+      handler: async (req, res) => {
+        if (!guard(req, res)) return
+        const body = await readJsonBody(req)
+        if (body === undefined) {
+          writeJson(res, 400, { ok: false, code: 'prompt-write-rejected', message: 'malformed JSON body' })
+          return
+        }
+        writeJson(res, 200, await handlers.promptWrite(body))
       },
     },
     {

@@ -138,6 +138,11 @@ export function collectPresets(scanResult) {
       if (f.rule === 'R-LEGACY' || f.rule === 'R-LEGACY-CONFLICT') {
         return p.source === 'legacy' && f.file === p.file
       }
+      // 提示词注入（R-INJECT-*）的 finding 落在 .md 上，归属靠 data 里的预设上下文：
+      // 不加这一条，注入问题就只留在全局列表里，所属预设卡会显示「已同步」
+      if (typeof f.rule === 'string' && f.rule.startsWith('R-INJECT-') && f.data?.presetFile) {
+        return f.data.presetFile === p.file && String(f.data.presetId ?? '') === String(p.id)
+      }
       const pid = f.presetId ?? (typeof f.rowId === 'string' && f.rowId.startsWith('preset-') ? f.rowId.slice('preset-'.length) : f.rowId)
       return pid === p.id && f.file === p.file
     })
@@ -265,6 +270,8 @@ export function summarize(scanResult, fixResult) {
     byLevel,
     byRule,
     findings,
+    // 读到的提示词注入清单（注入目录 → 条目）：报告与卡面共用一份
+    prompts: Array.isArray(scanResult.promptDirs) ? scanResult.promptDirs : [],
     presets: presetsForUi(collectPresets(scanResult)),
     eras: eraAnalysis(findings),
     fix: fixResult
@@ -303,6 +310,26 @@ export function renderText(summary) {
         ? `行 ${s.rows} · 预设 ${s.presets}${s.overrides ? ` · 覆盖 ${s.overrides}` : ''}`
         : '无声明'
       L.push(`  [${where}] ${s.file}（${detail}${s.errors ? ` · 解析错误 ${s.errors}` : ''}）`)
+    }
+  }
+  if (Array.isArray(summary.prompts) && summary.prompts.length) {
+    // 提示词注入（studio 结构）：报告里直接列出「读了哪些、几条生效、几条有问题」，
+    // 否则「改了没反应」只能靠人猜——文件在、投递器缺席/格式坏了是两回事。
+    L.push('')
+    L.push(`预设提示词（注入）${summary.prompts.length} 处：`)
+    for (const p of summary.prompts) {
+      const who = p.presetId ? `预设 ${p.presetId}` : '未关联预设'
+      const state = p.missing
+        ? '目录不存在'
+        : p.wired === false
+          ? '未接投递器行'
+          : `${p.total} 条 · 生效 ${p.enabled}${p.disabled ? ` · 关闭 ${p.disabled}` : ''}${p.issues ? ` · 格式问题 ${p.issues}` : ''}`
+      L.push(`  [${who}] ${p.dir}（${state}）`)
+      for (const e of p.entries ?? []) {
+        L.push(
+          `      ${e.enabled ? '·' : 'x'} ${e.name}  ${e.role}/${e.order}  ${e.chars} 字${e.issues?.length ? `  ⚠ ${e.issues.join(',')}` : ''}`,
+        )
+      }
     }
   }
   if (summary.fix) {

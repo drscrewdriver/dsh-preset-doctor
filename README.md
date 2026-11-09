@@ -24,6 +24,7 @@ DSH 0.1.7 把预设机制从「`.agent-presets/<id>/` 目录扫描 + 双文件�
 | R-DUP-ID | patch 内行 id 重复；同一预设 id 跨 home/profile 重复声明 | **只报告**（无法替你裁决删哪份） |
 | R-ID-SHADOWED | 预设 id 与安装内置预设同名（0.1.2-alpha.1 起 shipped 赢，声明不生效） | **只报告**（有意覆盖可忽略；推荐改自定义 id） |
 | R-STRUCT / R-YAML | 缺 id/config/plugins、非 insert 条目、YAML 语法错误 | **只报告** |
+| R-INJECT-* | 预设里的提示词注入（`注入/*.md` + 投递器行）：frontmatter 缺失、BOM、role 降级、order 归零、enabled 拼错、重名/同段位、目录不存在、写了没接线 | BOM **自动**去（其余字节不动）；其余**只报告**（带 `.md:行号`） |
 
 > 上表是 main/0.1.7（声明式）分支的处置；**旧线适配分支（≤0.1.5）目录是原生格式，R-LEGACY 不触发、R-LOCAL-PATH 豁免，改为目录内就地修**——见下方「适配分支」一节。
 
@@ -110,6 +111,40 @@ npm run table-build -- --repo <dsh 源码仓库> --from dsh-v0.1.5-rc.3 --to dsh
 | 5 | 官方组合是否漂移 | 卡面「缺官方行」会按参照预设列出少的行并标出该写哪个包，例：`+time-context` `+tool-schedule`、`-tool-subagent-codex` `-tool-ralph` |
 
 其中 2~5 全自动（启动扫描 + 卡片），1 与「官方 shipped 在哪」需要人看一眼。
+
+## 预设提示词注入：读得出来，报得出来
+
+预设还可以把提示词写成文件——`dsh-preset-studio` 的结构：`<预设目录>/注入/*.md`，frontmatter 给 `name / role / order / enabled`，正文就是提示词，再由预设里一行投递器把它挂进系统提示词：
+
+```yaml
+- id: studio-inject
+  name: 'dsh-preset-studio/inject'
+  config:
+    dir: '<预设目录>/注入'
+```
+
+投递器对坏文件是**沉默**的：前端只表现为「这条提示词好像没生效」。本工具用一个逐字段对齐投递器的读取器（`src/prompts/frontmatter.js`）把它们读出来，并报出投递器会静默吞掉的东西：
+
+| 投递器的实际行为 | doctor 报成 |
+|---|---|
+| 文件头有 BOM → `^---` 失配 → 整篇丢弃 | `R-INJECT-BOM`（**自动**去 BOM） |
+| 没有 frontmatter / 围栏没闭合 → 跳过该文件 | `R-INJECT-FORMAT` |
+| 正文全空 → 跳过该文件 | `R-INJECT-EMPTY` |
+| `role` 写错 → 静默降级为 `system` | `R-INJECT-FIELD` |
+| `order` 非数字 → 归零（先后由文件名决定） | `R-INJECT-FIELD` / `R-INJECT-ORDER` |
+| `enabled` 拼错（`ture`）→ 按**启用** | `R-INJECT-FIELD` |
+| 字段写成块标量（`name: >`）→ 读不到 | `R-INJECT-FIELD` |
+| 贡献名重复（`custom-inject:<name>`）→ 不做去重 | `R-INJECT-DUP` |
+| 正文 `{{model}}`/`{{cwd}}` → `interpolate:false`，占位符原样进提示词 | `R-INJECT-VAR` |
+| `config.dir` 缺失 / `~` 不展开 / 相对路径按进程 cwd / 目录不存在 | `R-INJECT-DIR` |
+| 目录没有 `.md`，或全部 `enabled:false` → 行在、投递 0 条 | `R-INJECT-EMPTY-DIR` |
+| `<home>/presets/<id>/注入` 有提示词，却没有任何投递器行指向它 | `R-INJECT-UNWIRED` |
+
+**看哪里**：每个预设卡里、行开关之后多一个**「系统提示词（N 段 · 随行停用 M · 注入 K 条）」框**（默认展开）——先列 **patch 里的提示词段**（`persona · prefix`、`plan-mode · section`、工具行覆写的 `description` 这类，带字数、一行预览与小标；已知键名不限长，未知键名要够长才算，避免把 `description` 元数据当提示词），**显示跟随行开关的解析值**：停用的段补「停用」标、划掉名字、不计入 N 段（如官方 `minimal` 的 `persistent-bash` 在 Windows 下就是停用）；再列**注入目录**里的条目（`名称 role/order 字数`，关闭划掉、格式问题标 ⚠）。卡外只保留「其他注入目录（未挂到预设卡）」。
+
+**能改**：每段后面有「编辑」——展开全文 textarea，保存时弹确认，然后走 `/prompt-write` 写回：**只替换该值的字节区间**（块标量沿用 `|`/`|-`/`>` 与缩进，单行仍单行，CRLF 跟随文件），写前 `.bak` + 原子写，同内容再存 → `skipped`。拒写：清空正文、非提示词键、`!!js` 表达式值。
+
+**边界**：除 BOM 清理与卡内显式编辑（confirm + `.bak` + span 替换）外，本工具**从不自作主张改用户提示词**——文案、段位、开关一律只报不改。
 
 ### 维护者：扒全组件地图
 
@@ -213,7 +248,7 @@ dsh plugin add dsh-preset-doctor
 
 ```bash
 npm install
-npm test   # node --test（82 个用例，含真实预设 fixtures 的端到端迁移验证 + 适配分支行为）
+npm test   # node --test（208 个用例，含真实预设 fixtures 的端到端迁移验证 + 适配分支行为 + 提示词注入格式校验）
 npm run lint
 ```
 

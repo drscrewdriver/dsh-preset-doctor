@@ -15,10 +15,12 @@ import { resolveDshHome } from './paths.js'
 import path from 'node:path'
 import { scanAll } from './scan.js'
 import { applyFixes, runAlign as alignPreset, runToggle as toggleRow, runDelete as deleteRow, runDeletePreset as deletePresetRow, runResolveLegacy } from './fix/index.js'
+import { runPromptWrite } from './fix/prompt-edit.js'
 import { defaultTimestamp } from './fix/core.js'
 import { summarize, renderText, renderJson, collectPresets, eraCatalogFor, DISCLAIMER } from './report.js'
 import { registerPresetDoctorCommand } from './commands.js'
 import { classifyComposition } from './rules/composition-drift.js'
+import { presetPromptTexts } from './rules/prompt-text.js'
 import { resolvePkg as realResolvePkg, collectBundleDisabledIds } from './pkg-resolve.js'
 import { baselineForVersion, loadBaseline } from './tables/load.js'
 import { installSettingsWaist } from './settings-waist.js'
@@ -136,6 +138,10 @@ export function apply(ctx, config = {}) {
     const allBaselines = loadBaseline()
     const composition = []
     const disabledCache = new Map() // profileRoot → Set，多预设共享同一 profile 只读一次
+    // 预设的提示词面：patch 里的提示词段（persona prefix/suffix、plan-mode section…）
+    // 与注入目录清单（studio 结构，按 presetFile+presetId 归属），逐预设挂到 composition 上。
+    const promptTexts = presetPromptTexts(scan)
+    const injections = Array.isArray(scan.promptDirs) ? scan.promptDirs : []
     for (const src of scan.sources || []) {
       for (const presetRow of src.presetRows || []) {
         if (!presetRow.presetId) continue
@@ -146,6 +152,10 @@ export function apply(ctx, config = {}) {
             baseline, allBaselines, currentVersion: summary.detectedVersion,
             resolvePkg: rowResolver, hostDisabled: disabledCache.get(src.file),
           }),
+          promptTexts: promptTexts.get(`${src.file}#${presetRow.presetId}`) ?? [],
+          injections: injections.filter(
+            (d) => d.presetFile === src.file && String(d.presetId ?? '') === String(presetRow.presetId),
+          ),
         })
       }
     }
@@ -155,6 +165,8 @@ export function apply(ctx, config = {}) {
       branch: summary.branch,
       eras: eraCatalogFor(summary.branch),
       presets: summary.presets,
+      // 预设里的提示词注入（dsh-preset-studio 结构）：注入目录 → 条目清单
+      prompts: summary.prompts,
       composition,
       total: summary.total,
       byLevel: summary.byLevel,
@@ -240,6 +252,14 @@ export function apply(ctx, config = {}) {
     return runResolveLegacy(scan, { key, confirm: confirm === true, dryRun: dryRun === true, ts: defaultTimestamp() })
   }
 
+  /** 提示词就地编辑（桥 prompt-write 路由）：重扫 → 文本级 span 替换某个提示词值（confirm 硬门 + .bak + 原子写）。 */
+  function runPromptWriteAction({ file, presetId, rowId, key, text, dryRun } = {}) {
+    const scan = scanAll(scanOpts(current()))
+    return runPromptWrite(scan, {
+      file, presetId, rowId, key, text, confirm: true, dryRun: dryRun === true, ts: defaultTimestamp(),
+    })
+  }
+
   // ── 三代设置 waist（0.1.2/0.1.5 installSection、0.1.0/0.1.1 register、
   //    rc.1+ loader volatile 存储无需动作，UI 走 client 卡）──
   installSettingsWaist(ctx, {
@@ -254,7 +274,7 @@ export function apply(ctx, config = {}) {
   // ── 设置桥（client 卡数据层；webServer 缺席的线自动 pending 不阻塞）──
   ctx.inject(['webServer', 'settings'], (sctx) => {
     sctx.effect(() => {
-      const routes = makeSettingsBridge({ settings: sctx.settings, ns: name, resolveConfig, context: { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction, runDelete: runDeleteAction, runDeletePreset: runDeletePresetAction, runResolveLegacy: runResolveLegacyAction } })
+      const routes = makeSettingsBridge({ settings: sctx.settings, ns: name, resolveConfig, context: { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction, runDelete: runDeleteAction, runDeletePreset: runDeletePresetAction, runResolveLegacy: runResolveLegacyAction, runPromptWrite: runPromptWriteAction } })
       const disposers = routes.map((route) => sctx.webServer.register(route))
       return () => {
         for (const dispose of disposers) dispose()
@@ -282,5 +302,5 @@ export function apply(ctx, config = {}) {
   ctx.effect(() => registerPresetDoctorCommand(ctx, (opts) => runScanFix(opts)), 'preset-manager: command register')
 
   // 供测试与高级宿主直接使用（宿主 apply 返回值照常忽略）
-  return { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction, runDelete: runDeleteAction, runDeletePreset: runDeletePresetAction, runResolveLegacy: runResolveLegacyAction }
+  return { getSummary, runSync, runAlign: runAlignAction, runToggle: runToggleAction, runDelete: runDeleteAction, runDeletePreset: runDeletePresetAction, runResolveLegacy: runResolveLegacyAction, runPromptWrite: runPromptWriteAction }
 }

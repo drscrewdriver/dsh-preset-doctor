@@ -1,5 +1,85 @@
 # Changelog
 
+## 0.9.3 (2026-11-09)
+
+**从「能看见」到「能改」，且显示跟随行开关**。
+
+- **卡内就地编辑**：每段提示词后面多一个「编辑」→ 展开 textarea（带原全文）→ 「保存到 patch」。走新桥路由 `/prompt-write`（confirm 硬门 + loopback 守卫），落盘仍是 **span 替换**：只换该值那一段字节，同文件注释/缩进/其它行一字不动；写前 `.bak-<ts>` + 原子写；同内容再存 → `skipped`（幂等）。
+- **保形**：块标量沿用原指示符（`|` / `|-` / `>`）与内容缩进；单行标量仍单行（单引号转义）；单行改多行 / 多行改单行自动换形态；行尾跟随文件（CRLF 写 CRLF）。
+- **拒写**：缺 confirm、清空正文（宿主 `persona.prefix` / `plan-mode.section` 要求非空）、非提示词键（防误改 `fetch`/端口/id）、带自定义标签的值（`!!js` 表达式，改写会抹掉条件）。
+- **显示跟随 enable**：条目按所属行的**解析值**（`effective`）分组——停用的段补「停用」标、名字划掉、下沉到启用段之后，且**不计入**「N 段」。这正是官方 `minimal` 那两个工具说明的处境：`persistent-bash` 带 `disabled: !!js process.platform === 'win32'`，Windows 上就是停用。汇总行改为 `系统提示词（N 段 · 随行停用 M · 注入 K 条）`。
+- 修一个定位 bug：提示词值要从 `configNode` 取（不是行节点本身），否则除首行外一律「取不到值」。
+- 测试 +6（216 全绿）：块标量保形 + roundtrip + 幂等、单行引号转义、单→多自动转块、CRLF、四条拒写、span 起点不碰键名。
+
+
+## 0.9.2 (2026-11-09)
+
+**把工具说明也算进提示词面**——之前只收 persona/plan-mode，漏了工具行覆写的 `description`（模型可见的工具说明）。
+
+- 宿主源码核验（`deepseek-harness` 0.2.0/0.2.1）：由预设 config 驱动、真进模型的只有三处
+  - `dsh-persona` 的 `prefix` / `suffix`（`packages/preset/persona/src/index.ts:66,72`）
+  - `dsh-plan-mode` 的 `section`（`packages/plan/plan-mode/src/index.ts:72,191`）
+  - 工具行的 `description`（`tool-bash-persistent` / `tool-pwsh-persistent` / `tool-str-replace-editor`，源码注释写明 *Model-facing tool description*）
+  其余 `tool-*` 的 guidance 是代码里的静态段，不读 config。
+- `prompt-text.js`：`description` 入白名单，但**排除预设声明行本身**的 `config.description`（那是面板文案，不是提示词）；条目新增 `kind`（persona / plan / tool / text）。
+- 卡面：提示词段后面多一个小标（人设 / 计划模式 / 工具说明）。
+- 实证：官方 `minimal` 预设从 1 段变 3 段 —— `persona.prefix[persona] + persistent-bash.description[tool] + persistent-pwsh.description[tool]`。
+- 测试 210 全绿（断言补：工具 description 收录、预设元数据不收录、kind 归类）。
+
+
+## 0.9.1 (2026-11-09)
+
+**「系统提示词」框落到预设卡里，位置在行开关之后**（0.9.0 只在卡外列了注入目录，看不到 patch 里的提示词本身）。
+
+- **patch 侧提示词段**：新增 `src/rules/prompt-text.js`，按预设行区间读出 `config` 里的提示词——已知键名（`prefix` / `suffix` / `text` / `section` / `prompt`…）不限长度，未知键名要求多行且 ≥200 字（自定义行也能兜住）；`description` / `fetch: true` 这类元数据不误扣。只读、不插值（`{{model}}` 按原文展示）。
+- **卡面**：`PresetCard` 在行开关（`CompDetails`）之后渲染 `PromptBox`——默认展开，汇总「N 段 · 注入 M 条」，逐段列 `行id · 键（字数）+ 预览`，再列注入条目（`名称 role/order 字数`，关闭划掉、格式问题标 ⚠）。
+- **全局注入区收窄**：卡外只剩「其他注入目录（未挂到预设卡）」——未接线、目录不存在、无归属的才出现在这里，不再与卡内重复。
+- 真机实测（`~/.dsh`，5 个自建预设）：每个预设读出 `persona.prefix` + `plan-mode.section` 两段（1.3k～2.4k 字），框立刻有内容。
+- 测试 +2（210 全绿）：按区间归组/区间隔离、已知键不限长 + 未知键长文本兜底。
+
+
+## 0.9.0 (2026-11-09)
+
+**新能力：读取预设里的提示词并校验格式**——对齐 `dsh-preset-studio` 的「注入」结构（`<预设目录>/注入/*.md` + 一行 `name: 'dsh-preset-studio/inject'` 的投递器）。原先 doctor 只看 patch 里的插件行；提示词写坏了（frontmatter 缺失、BOM、role 写错、同名重复）投递器是**沉默**的，UI 只表现成「这条提示词好像没生效」。
+
+### 为什么是「对齐投递器」而不是「自己定一套校验」
+
+判定权在消费方。`packages/studio/inject.js` 的实际读取行为是：
+
+- frontmatter 必须是文件首行 `---` 围栏（**BOM 顶掉首字符就整篇丢弃**）
+- 只读顶层**单行标量**：`name` / `role` / `order` / `enabled`（块标量、嵌套映射一律读不到）
+- `role` 只认 `system | user | assistant`，其它**静默降级为 system**
+- `order` 非数字**归零**，与所有没写号的条目同段位，先后由文件名决定
+- `enabled` 拼错（如 `ture`）读不出时**按启用**——以为关掉的注入还在生效
+- 正文全空的文件直接跳过；贡献名是 `custom-inject:<name>`，投递器不做去重
+
+所以 doctor 的读取器（`src/prompts/frontmatter.js`）逐字段复刻这套语义，报出来的就是「投递器会怎么读」，不是另一套猜测。
+
+### 新规则（`src/rules/prompt-injection.js`）
+
+| 规则 | 触发 | 处置 |
+|---|---|---|
+| `R-INJECT-BOM` | 文件头带 UTF-8 BOM（投递器 `^---` 失配） | **自动**去 BOM（写前 `.bak`、原子写、幂等，其余字节不动） |
+| `R-INJECT-FORMAT` | 无 frontmatter / 围栏未闭合（文件被静默丢弃） | 只报告 |
+| `R-INJECT-EMPTY` | 正文为空（只有 frontmatter） | 只报告 |
+| `R-INJECT-FIELD` | role 降级、order 非数字、enabled 拼错、字段写成块标量 | 只报告（带行号） |
+| `R-INJECT-DUP` | 同一目录内贡献名重复（`custom-inject:<name>`） | 只报告 |
+| `R-INJECT-ORDER` | 同 role 同 order（先后由名称决定） | 只报告 |
+| `R-INJECT-VAR` | 正文里出现 `{{model}}` / `{{cwd}}`（投递器 `interpolate:false`，占位符原样进提示词） | 只报告 |
+| `R-INJECT-DIR` | 缺 `config.dir`、`~`/`%VAR%` 不展开、相对路径按进程 cwd 解析、目录不存在 | 只报告 |
+| `R-INJECT-EMPTY-DIR` | 目录无 `.md`，或全部 `enabled:false`（行在、投递 0 条） | 只报告 |
+| `R-INJECT-UNWIRED` | `<home>/presets/<id>/注入` 有提示词，却没有任何投递器行指向它 | 只报告 |
+
+### 消费面
+
+- **扫描**：`src/scan.js` 逐源跑投递器行（按行区间归属到所属预设）+ `checkUnwiredPromptDirs` 扫 studio 默认根 `<home>/presets/<id>/注入`；结果落 `scanResult.promptDirs`（目录 → 条目清单：名称/角色/段位/开关/字数/变量）。
+- **报告**：`renderText` 新增「预设提示词（注入）N 处」块（逐目录 + 逐条 `· 名称 role/order N 字`，关闭标 `x`、问题标 `⚠`）；`summary.prompts` 同步进 JSON。
+- **卡面**：`lib/client.js` 新增「预设提示词（注入）」卡片区（已接线 / 未接线 / 目录不存在 + 条目明细）；注入问题还按 `data.presetFile`+`data.presetId` 挂回所属预设卡，不再出现「提示词坏了但预设显示已同步」。
+- 只读承诺不变：除 BOM 清理外，全流程零改写用户提示词；写盘仍只经显式确认（卡内同步 / `/preset-doctor fix`）。
+
+测试 +12（208 全绿）：读取器对齐（围栏/标量/布尔/数字）、正常清单、BOM 修复幂等、三种静默丢弃、字段三类写错、块标量、重名/同段位、`{{cwd}}`、缺 dir/目录不存在、空目录与全关、未接线、问题挂回预设卡。
+
+
 ## 0.8.3 (2026-11-08)
 
 两条主线：**① 预设组合识别与对齐的语义收口**（bundle 层禁用并入判据、真值表 + disable 退避、子路径导出存在性、开启硬拦、预设级删除，见下方「 0.8.3 主体」）；**② 全组件地图与升级观测**（本轮新增）。

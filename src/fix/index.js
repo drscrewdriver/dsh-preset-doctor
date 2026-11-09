@@ -16,6 +16,8 @@ import { makeEnableEdit, makeStateEdit, deleteItemEdit } from './row-edit.js'
 import { rowUnavailable, rowNoBaseline, rowDeclaredState, rowUnavailableReason, inferRefPid } from '../rules/composition-drift.js'
 import { runResolveLegacy } from './resolve-legacy.js'
 import { writeFileSafe, defaultTimestamp, displayPath, spliceEdits } from './core.js'
+import fs from 'node:fs'
+import { hasBom, stripBom } from '../prompts/frontmatter.js'
 import { baselineForVersion, loadBaseline } from '../tables/load.js'
 
 export { runResolveLegacy }
@@ -29,10 +31,33 @@ export function applyFixes({ home, sources, findings, tables }, { dryRun = false
     errors: [], // [{ file?, id?, rule?, message }]
   }
 
+  // ── 阶段 0：提示词注入文件的 BOM 清理（唯一一类机械改 .md 的修复）──
+  // BOM 顶在首字符会让投递器 `^---` 匹配失败、整篇提示词被静默丢弃；
+  // 去掉 BOM 后其余字节一字不动，且天然幂等（无 BOM → 跳过）。
+  const bomFiles = new Set(
+    findings.filter((f) => f.level === 'auto' && f.rule === 'R-INJECT-BOM').map((f) => f.file),
+  )
+  for (const file of bomFiles) {
+    try {
+      const original = fs.readFileSync(file, 'utf8')
+      if (!hasBom(original)) continue
+      const write = writeFileSafe(file, stripBom(original), original, { dryRun, ts })
+      results.files.push({
+        file: displayPath(file),
+        status: write.status,
+        backup: write.backup,
+        rules: ['R-INJECT-BOM'],
+        editCount: 1,
+      })
+    } catch (e) {
+      results.errors.push({ file, rule: 'R-INJECT-BOM', message: e.message })
+    }
+  }
+
   // ── 阶段 1：patch 内 span 编辑 ──
   const byFile = new Map()
   for (const f of findings) {
-    if (f.level !== 'auto' || f.rule === 'R-LEGACY') continue
+    if (f.level !== 'auto' || f.rule === 'R-LEGACY' || f.rule === 'R-INJECT-BOM') continue
     if (!byFile.has(f.file)) byFile.set(f.file, [])
     byFile.get(f.file).push(f)
   }

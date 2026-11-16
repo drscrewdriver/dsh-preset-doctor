@@ -201,6 +201,9 @@ test('正文里的 {{cwd}}：投递器 interpolate:false → 占位符原样进�
 
 test('config.dir 缺失 / 目录不存在：投递器挂成 0 条', (t) => {
   const home = tmpHome(t)
+  // 跨平台：必须用「本平台根目录下必然不存在」的绝对路径。原先写死 'C:/...'，
+  // 在 Linux 上不是绝对路径 → 额外命中 relative 提示，findings 变成 3 条。
+  const missingDir = path.join(path.parse(os.tmpdir()).root, 'dsh-preset-doctor-not-here', '注入')
   writeFileAt(
     path.join(home, 'cordis.patch.yml'),
     [
@@ -215,7 +218,7 @@ test('config.dir 缺失 / 目录不存在：投递器挂成 0 条', (t) => {
       '          - id: bad-dir',
       "            name: 'dsh-preset-studio/inject'",
       '            config:',
-      "              dir: 'C:/definitely/not/here/注入'",
+      `              dir: '${missingDir}'`,
     ].join('\n'),
   )
   const dirs = inject(scan(home)).filter((f) => f.rule === 'R-INJECT-DIR')

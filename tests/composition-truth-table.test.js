@@ -128,7 +128,10 @@ test('护栏③：!!js 平台表达式行——算完 true/false 提交解析值
   const byId = Object.fromEntries(classify(srcWith([bash, pwsh])).rows.map((r) => [r.id, r]))
   const win = process.platform === 'win32'
   assert.equal(byId['tool-bash'].declared, 'dynamic')
-  assert.equal(byId['tool-bash'].dynamicResolved, win, '仅 win32 下能判为禁用')
+  // dynamicResolved 的语义是「表达式能否求出」（platformDisabled !== null），与平台无关；
+  // 求出来的值本身走 effective。原先断言 == win 只在 win32 上碰巧成立。
+  assert.equal(byId['tool-bash'].dynamicResolved, true, '平台表达式能求出（platformDisabled 非 null）')
+  assert.equal(byId['tool-bash'].platformDisabled, win, '仅 win32 下能判为禁用')
   assert.equal(byId['tool-bash'].effective, !win, '算完的值提交进解析结果')
   assert.equal(byId['tool-pwsh'].effective, win)
   assert.equal(byId['tool-bash'].platform, process.platform, '回报求值用的运行平台')

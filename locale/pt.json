@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Doutor de presets",
+    "description": "Detecta presets de agente quebrados e os alinha mecanicamente à sintaxe atual, com backup antes de escrever, escritas atômicas e idempotência; o resto é reportado linha por linha."
+  }
+}

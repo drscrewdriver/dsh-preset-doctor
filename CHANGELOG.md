@@ -1,5 +1,20 @@
 # Changelog
 
+## 未发布
+
+**家族兜底探针改判据：从「容器在不在」改成「我自己有没有座位」。**
+
+旧判据查 `entries('settings.section')` 里有没有 `id = dsh-family` —— 只要正牌 owner（TL 200ms / guard 2s / steward 2.9s / mcp 7.4s）站住了座位就直接 `return`。于是出现最坏的一格：**容器在、本插件的 `dsh-family.tab` inject 从未派发** —— 既不进家族也不自立，设置面静默消失且无任何告警（0.2.2 线现网即此）。探针看的从来不是「我在不在里面」。
+
+- **判据换成自己的座位旗标**（`ownTabRegistered`）：
+  - 有座位 → 什么都不加（唯一入口不变）；
+  - 容器被人占住、我没座位 → **自立本插件专属 `settings.section`（id `preset-manager-standalone`）**，绝不抢 `dsh-family` 这个 id（list 槽同 id 即替换，会把对方整节顶掉）；
+  - 无人建容器 → 自己上位，且**必须同时声明 `dsh-family.tab` children**（不带 children 的残废节会让后来者的 tab 全部落空，2026-10-14 面板丢失的成因）。
+- **注册失败回滚旗标**：`slots.register` 抛错时把 `ownTabRegistered` 复位，backstop 得以继续自救（旧代码置位后就不管了，一次失败永久失明）。
+- **自建容器的节体改成账本驱动**：真 tab 条（`getVersion`/`subscribe` 快照）+ 选中态；**账本为空时直接内联本卡**，绝不渲染空白节；无 `renderSlot` 的老宿主退回 `renderContributor` 从账本条目现挂组件。
+- **可重估**：新增 `settings.section` 订阅，容器/子槽晚到时再估一次（`due` 闸挡住过点前的提前自立）；真座位一旦到手立刻撤掉自立节，杜绝双入口。
+- 新增 `tests/client-backstop.test.js`（5 格真值表：A 现网故障格 / B 唯一入口 / C 自建带 children / C-空账本内联 / due 闸），全套 221 测试绿。
+
 ## 0.9.4 (2026-11-14)
 
 宿主声明改有界区间（版本上下限改造）：双清单 `engines.dsh`（`package.json` / `dsh.plugin.json`）由逐 21 档 rc 精确枚举改为 `>=0.1.0-rc.2 <0.3.0`（下限＝原枚举起点，上限不含 0.3 线），0.2.x 线上后续 rc 无需重发版即可安装；renderer peer 仍 optional 且不动。纯元数据发版，代码零改动；node --test 216/216 绿。
